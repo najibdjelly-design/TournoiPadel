@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Tournament, Pair } from '../../types/tournament';
 import { rankAndSeedPairs } from '../../utils/padelCalculations';
-import { parseFftParticipantsCsv, SAMPLE_FFT_FILE_CONTENT } from '../../utils/csvImportParser';
 import { CsvImportModal } from '../modals/CsvImportModal';
 import {
   Users,
@@ -226,27 +225,18 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
     } else {
       newPairs = [...tournament.pairs, ...importedPairs];
     }
-    const seedQuota = newPairs.length >= 16 ? 8 : 4;
-    const seeded = rankAndSeedPairs(newPairs, seedQuota);
+    const confirmedPairs = newPairs.filter(pair => pair.status === 'confirmed');
+    const waitingPairs = newPairs.filter(pair => pair.status !== 'confirmed');
+    const seedQuota = confirmedPairs.length >= 16 ? 8 : 4;
+    const seeded = [
+      ...rankAndSeedPairs(confirmedPairs, seedQuota),
+      ...waitingPairs.map(pair => ({ ...pair, seedRank: undefined })),
+    ];
 
     onUpdateTournament({
       ...tournament,
       pairs: seeded,
     });
-  };
-
-  const handleDirectImportAttachedFile = () => {
-    const result = parseFftParticipantsCsv(SAMPLE_FFT_FILE_CONTENT, tournament.id);
-    if (result.pairs.length > 0) {
-      const seedQuota = result.pairs.length >= 16 ? 8 : 4;
-      const seeded = rankAndSeedPairs(result.pairs, seedQuota);
-      onUpdateTournament({
-        ...tournament,
-        name: result.eventName ? `${tournament.name} (${result.eventName})` : tournament.name,
-        pairs: seeded,
-      });
-      alert(`Import réussi : ${result.pairs.length} paires officielles FFT importées !`);
-    }
   };
 
   const toggleDirectTableau = (pairId: string) => {
@@ -310,7 +300,7 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
             title="Importer un fichier export FFT / Ten'Up (Liste des participants)"
           >
             <UploadCloud className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Importer FFT (CSV)</span>
+            <span>Importer FFT (CSV / XLSX)</span>
           </button>
 
           <button
@@ -352,19 +342,11 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
               Compatible Ten&apos;Up & Gestion Sportive FFT (&ldquo;Liste des participants padel&rdquo;)
             </span>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Supporte le format 24 équipes avec détection automatique des 20 colonnes officielles FFT.
+              Importez les onglets Tableau final et Liste d&apos;attente depuis un fichier XLSX FFT/Ten&apos;Up ou un CSV.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={handleDirectImportAttachedFile}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors shadow-2xs flex items-center gap-1.5"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Charger fichier transmis (9 paires)</span>
-          </button>
           <button
             type="button"
             onClick={() => setIsCsvImportModalOpen(true)}

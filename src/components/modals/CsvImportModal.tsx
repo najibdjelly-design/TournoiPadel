@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { Tournament, Pair } from '../../types/tournament';
+import readXlsxFile from 'read-excel-file/browser';
 import {
   parseFftParticipantsCsv,
-  SAMPLE_FFT_FILE_CONTENT,
+  parseFftParticipantsRows,
   ParseResult,
 } from '../../utils/csvImportParser';
 import { rankAndSeedPairs } from '../../utils/padelCalculations';
@@ -12,8 +13,6 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   AlertTriangle,
-  FileText,
-  Sparkles,
   ArrowRight,
   Database,
 } from 'lucide-react';
@@ -39,45 +38,89 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
   const [autoSeed, setAutoSeed] = useState<boolean>(true);
   const [activeInputTab, setActiveInputTab] = useState<'upload' | 'paste'>('upload');
   const [fileName, setFileName] = useState<string>('');
+  const [isReadingFile, setIsReadingFile] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleProcessText = (content: string, name?: string) => {
+  const handleProcessText = (content: string) => {
     setRawText(content);
-    if (name) setFileName(name);
     const result = parseFftParticipantsCsv(content, tournament.id);
     setParseResult(result);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setFileName(file.name);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        if (content) handleProcessText(content, file.name);
-      };
-      reader.readAsText(file);
+  const handleFileUpload = async (file: File) => {
+    setFileName(file.name);
+    setRawText('');
+    setParseResult(null);
+    setIsReadingFile(true);
+
+    try {
+      if (file.name.toLowerCase().endsWith('.xlsx')) {
+        const sheets = await readXlsxFile(file);
+        const parsedSheets = sheets.map(({ sheet, data }) => {
+          const status = sheet.toLocaleLowerCase('fr-FR').includes('attente')
+            ? 'waiting_list'
+            : 'confirmed';
+          return {
+            sheet,
+            result: parseFftParticipantsRows(data, tournament.id, status),
+          };
+        });
+        const validSheets = parsedSheets.filter(({ result }) => result.validCount > 0);
+        const pairs = validSheets.flatMap(({ result }) => result.pairs);
+        const warnings = parsedSheets.flatMap(({ sheet, result }) =>
+          result.warnings.map(warning => `Onglet « ${sheet} » : ${warning}`)
+        );
+
+        if (pairs.length === 0) {
+          warnings.push('Aucune paire valide trouvée. Vérifiez que le classeur respecte le modèle FFT.');
+        }
+
+        setParseResult({
+          pairs,
+          eventName: validSheets.find(({ result }) => result.eventName)?.result.eventName,
+          category: validSheets.find(({ result }) => result.category)?.result.category,
+          totalRows: validSheets.reduce((total, { result }) => total + result.totalRows, 0),
+          validCount: pairs.length,
+          warnings,
+        });
+        return;
+      }
+
+      if (!file.name.toLowerCase().endsWith('.csv') && !file.name.toLowerCase().endsWith('.txt')) {
+        setParseResult({
+          pairs: [],
+          totalRows: 0,
+          validCount: 0,
+          warnings: ['Format non pris en charge. Sélectionnez un fichier .xlsx ou .csv.'],
+        });
+        return;
+      }
+
+      handleProcessText(await file.text());
+    } catch (error) {
+      const detail = error instanceof Error ? ` ${error.message}` : '';
+      setParseResult({
+        pairs: [],
+        totalRows: 0,
+        validCount: 0,
+        warnings: [`Impossible de lire le fichier « ${file.name} ».${detail}`],
+      });
+    } finally {
+      setIsReadingFile(false);
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      setFileName(file.name);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        if (content) handleProcessText(content, file.name);
-      };
-      reader.readAsText(file);
-    }
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) void handleFileUpload(file);
+    event.target.value = '';
   };
 
-  const handleLoadSampleFile = () => {
-    handleProcessText(SAMPLE_FFT_FILE_CONTENT, 'Copie_de_Liste_des_participants__padel');
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0];
+    if (file) void handleFileUpload(file);
   };
 
   const handleConfirmImport = () => {
@@ -95,7 +138,13 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
 
     let finalPairs = parseResult.pairs;
     if (autoSeed) {
-      finalPairs = rankAndSeedPairs(finalPairs, 4);
+      const confirmedPairs = finalPairs.filter(pair => pair.status === 'confirmed');
+      const waitingPairs = finalPairs.filter(pair => pair.status !== 'confirmed');
+      const seedQuota = confirmedPairs.length >= 16 ? 8 : 4;
+      finalPairs = [
+        ...rankAndSeedPairs(confirmedPairs, seedQuota),
+        ...waitingPairs.map(pair => ({ ...pair, seedRank: undefined })),
+      ];
     }
 
     onImportPairs(finalPairs, replaceExisting);
@@ -130,7 +179,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {/* Top Options: Dropzone / Paste tab & Sample Loader */}
+          {/* Top Options */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-lg text-xs">
               <button
@@ -157,15 +206,6 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={handleLoadSampleFile}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors shadow-xs"
-              title="Charge directement les 9 paires du fichier Liste des participants (ASPTT Fourragère)"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Charger fichier transmis (9 paires)</span>
-            </button>
           </div>
 
           {/* Input Method */}
@@ -174,13 +214,14 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
+              aria-busy={isReadingFile}
               className="border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/20 rounded-xl p-8 text-center cursor-pointer transition-all space-y-2"
             >
               <input
                 type="file"
                 ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept=".csv, .txt, text/csv, application/vnd.ms-excel"
+                onChange={handleFileInputChange}
+                accept=".csv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 className="hidden"
               />
               <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-emerald-600 mx-auto shadow-xs">
@@ -190,12 +231,17 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                 {fileName ? (
                   <span className="text-emerald-700 font-bold">{fileName}</span>
                 ) : (
-                  'Glissez-déposez votre fichier CSV ici, ou cliquez pour parcourir'
+                  'Glissez-déposez un fichier XLSX ou CSV ici, ou cliquez pour parcourir'
                 )}
               </p>
               <p className="text-[11px] text-slate-500">
-                Prend en charge les séparateurs virgule (,), point-virgule (;) ou tabulation
+                XLSX FFT/Ten&apos;Up (onglets tableau final et liste d&apos;attente) ou CSV avec séparateurs virgule, point-virgule ou tabulation
               </p>
+              {isReadingFile && (
+                <p className="text-xs font-semibold text-emerald-700" role="status">
+                  Lecture du fichier…
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -233,6 +279,11 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span>{parseResult.validCount} paires détectées avec succès</span>
                   </div>
+                  {parseResult.pairs.some(pair => pair.status === 'waiting_list') && (
+                    <span className="text-amber-700 font-semibold">
+                      {parseResult.pairs.filter(pair => pair.status === 'waiting_list').length} en attente
+                    </span>
+                  )}
                   {parseResult.eventName && (
                     <span className="text-slate-600">
                       Épreuve : <strong className="text-slate-900">{parseResult.eventName}</strong>
@@ -338,7 +389,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
             </button>
             <button
               type="button"
-              disabled={!parseResult || parseResult.pairs.length === 0}
+              disabled={isReadingFile || !parseResult || parseResult.pairs.length === 0}
               onClick={handleConfirmImport}
               className="flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors shadow-xs"
             >

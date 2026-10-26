@@ -64,8 +64,8 @@ export function parseFftParticipantsCsv(
   csvText: string,
   tournamentId: string
 ): ParseResult {
-  const warnings: string[] = [];
   const lines = csvText
+    .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
@@ -80,7 +80,37 @@ export function parseFftParticipantsCsv(
   }
 
   const delimiter = detectDelimiter(lines[0]);
-  const rawHeaders = splitCsvLine(lines[0], delimiter);
+  return parseFftParticipantsRows(
+    lines.map(line => splitCsvLine(line, delimiter)),
+    tournamentId
+  );
+}
+
+export function parseFftParticipantsRows(
+  inputRows: readonly (readonly unknown[])[],
+  tournamentId: string,
+  status: Pair['status'] = 'confirmed'
+): ParseResult {
+  const warnings: string[] = [];
+  const rows = inputRows
+    .map(row => row.map(value => {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toLocaleDateString('fr-FR');
+      }
+      return value == null ? '' : String(value).trim();
+    }))
+    .filter(row => row.some(value => value.length > 0));
+
+  if (rows.length === 0) {
+    return {
+      pairs: [],
+      totalRows: 0,
+      validCount: 0,
+      warnings: ['Le fichier est vide.'],
+    };
+  }
+
+  const rawHeaders = rows[0];
   const normalizedHeaders = rawHeaders.map(normalizeHeader);
 
   // Map header indexes
@@ -123,14 +153,21 @@ export function parseFftParticipantsCsv(
     warnings.push(
       "Colonnes essentielles manquantes (Nom joueur 1 / Nom joueur 2 non détectés). Vérifiez les en-têtes."
     );
+    return {
+      pairs: [],
+      totalRows: rows.length - 1,
+      validCount: 0,
+      warnings,
+    };
   }
 
   const pairs: Pair[] = [];
+  const importId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   let detectedEventName: string | undefined;
   let detectedCategory: string | undefined;
 
-  for (let i = 1; i < lines.length; i++) {
-    const rawCols = splitCsvLine(lines[i], delimiter);
+  for (let i = 1; i < rows.length; i++) {
+    const rawCols = rows[i];
     if (rawCols.length < 2) continue;
 
     const getValue = (idx: number, fallback: string = ''): string => {
@@ -141,8 +178,8 @@ export function parseFftParticipantsCsv(
     const getNumber = (idx: number, fallback: number = 0): number => {
       const val = getValue(idx);
       if (!val) return fallback;
-      const parsed = parseInt(val.replace(/[^0-9]/g, ''), 10);
-      return isNaN(parsed) ? fallback : parsed;
+      const parsed = Number(val.replace(/\s/g, '').replace(',', '.'));
+      return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
     };
 
     if (!detectedEventName && idxEventName !== -1) {
@@ -169,6 +206,7 @@ export function parseFftParticipantsCsv(
     const p2Mail = getValue(idxP2Mail, '');
     const p2Tel = getValue(idxP2Tel, '');
     const p2Dob = getValue(idxP2Dob, '');
+    if (!p1Nom && !p2Nom) continue;
 
     const pos = getNumber(idxPosition, i);
 
@@ -179,7 +217,7 @@ export function parseFftParticipantsCsv(
     }
 
     const player1: Player = {
-      id: `pl_imp_${i}_1_${Date.now()}`,
+      id: `pl_imp_${importId}_${i}_1`,
       firstName: p1Prenom,
       lastName: p1Nom,
       licenseNumber: p1Licence,
@@ -195,7 +233,7 @@ export function parseFftParticipantsCsv(
     };
 
     const player2: Player = {
-      id: `pl_imp_${i}_2_${Date.now()}`,
+      id: `pl_imp_${importId}_${i}_2`,
       firstName: p2Prenom,
       lastName: p2Nom,
       licenseNumber: p2Licence,
@@ -211,14 +249,14 @@ export function parseFftParticipantsCsv(
     };
 
     const pair: Pair = {
-      id: `pair_fft_${i}_${Date.now()}`,
+      id: `pair_fft_${importId}_${i}`,
       tournamentId,
       player1,
       player2,
       totalWeight: weight,
       entryPosition: pos,
       isDirectTableau: false,
-      status: 'confirmed',
+      status,
       createdAt: new Date().toISOString().split('T')[0],
     };
 
@@ -229,7 +267,7 @@ export function parseFftParticipantsCsv(
     pairs,
     eventName: detectedEventName,
     category: detectedCategory,
-    totalRows: lines.length - 1,
+    totalRows: rows.length - 1,
     validCount: pairs.length,
     warnings,
   };

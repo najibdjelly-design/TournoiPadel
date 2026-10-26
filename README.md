@@ -19,6 +19,13 @@ View your app in AI Studio: https://ai.studio/apps/a8245806-3992-468b-8a94-1bb4c
 3. Run the app:
    `npm run dev`
 
+## Import FFT / Ten'Up participants
+
+From the registrations screen, use **Importer FFT (CSV / XLSX)** to import a CSV export or an
+`.xlsx` workbook. In FFT workbooks, the `Tableau final` sheet is imported as confirmed pairs and
+the `Liste d'attente` sheet as waiting-list pairs. Ranking, pair weight, and phone formatting are
+preserved from the spreadsheet.
+
 ## Supabase setup
 
 The application uses Supabase Auth and stores each account's tournaments in Supabase. Copy
