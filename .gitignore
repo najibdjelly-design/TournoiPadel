@@ -1,0 +1,10 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+public/assets/aistudio/Copie_de_Liste_des_participants__padel__fa0d9ee0
+public/assets/aistudio/IMG_1582_4abbd882.png

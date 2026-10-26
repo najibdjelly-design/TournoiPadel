@@ -1,0 +1,6 @@
+{
+  "name": "Padel Tournament Manager Pro",
+  "description": "Professional Padel tournament management system featuring pair weight calculation, poules & knockout brackets, court scheduling, convocations, and live player view.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
