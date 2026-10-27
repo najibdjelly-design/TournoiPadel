@@ -49,7 +49,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     matchNumber: number;
   } | null>(null);
 
-  const [slotTab, setSlotTab] = useState<'pairs' | 'pools' | 'losers' | 'custom'>('pairs');
+  const [slotTab, setSlotTab] = useState<'pairs' | 'pools' | 'winners' | 'losers' | 'custom'>('pairs');
   const [slotPairSearch, setSlotPairSearch] = useState('');
   const [customPlaceholder, setCustomPlaceholder] = useState('');
   const [isClearTableauModalOpen, setIsClearTableauModalOpen] = useState(false);
@@ -928,6 +928,17 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => setSlotTab('winners')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap ${
+                  slotTab === 'winners'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                Vainqueur du Principal
+              </button>
+              <button
+                type="button"
                 onClick={() => setSlotTab('losers')}
                 className={`px-3 py-1.5 rounded-lg font-bold transition-colors whitespace-nowrap ${
                   slotTab === 'losers'
@@ -1026,6 +1037,48 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                         </button>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {slotTab === 'winners' && (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-600">
+                    Sélectionnez un match dont le vainqueur sera automatiquement positionné ici :
+                  </p>
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                    {tournament.bracketMatches
+                      .filter((m) => m.type !== 'consolante')
+                      .map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            const hasWinner = m.status === 'completed' && m.winnerPairId;
+                            handleAssignToSlot(
+                              slotModalInfo.matchId,
+                              slotModalInfo.slot,
+                              hasWinner ? m.winnerPairId : undefined,
+                              hasWinner
+                                ? `Vainqueur Match #${m.matchNumber}`
+                                : `Vainqueur Match #${m.matchNumber} (${m.roundName})`
+                            );
+                          }}
+                          className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 text-left transition-colors flex items-center justify-between text-xs"
+                        >
+                          <div>
+                            <span className="font-bold text-slate-900 block">
+                              Match #{m.matchNumber} : {m.roundName}
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              {m.status === 'completed'
+                                ? `Score : ${formatScore(m.score)}`
+                                : 'En attente de score'}
+                            </span>
+                          </div>
+                          <span className="text-emerald-700 font-bold text-xs">Lier vainqueur</span>
+                        </button>
+                      ))}
                   </div>
                 </div>
               )}
