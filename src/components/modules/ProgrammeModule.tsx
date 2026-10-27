@@ -7,7 +7,6 @@ import {
   createConflictFreeSchedule,
   isMatchPlayable,
   isMatchSchedulable,
-  isMatchSchedulingUnlocked,
   normalizeSixteenTeam24Draw,
   resolveBracketByes,
 } from '../../utils/padelSchedule';
@@ -309,9 +308,6 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   const handleAssignMatchToSlot = (newMatchId: string) => {
     if (!assigningSlot) return;
 
-    const selectedMatch = allMatches.find(match => match.id === newMatchId);
-    if (!selectedMatch || !isMatchSchedulingUnlocked(selectedMatch, allMatches)) return;
-
     const { courtId, time } = assigningSlot;
 
     const updateMatchInArray = (arr: Match[]) =>
@@ -346,7 +342,6 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
     if (
       !sourceMatch?.courtId ||
       !sourceMatch.scheduledTime ||
-      !isMatchSchedulingUnlocked(sourceMatch, allMatches) ||
       sourceMatch.status === 'in_progress' ||
       sourceMatch.status === 'completed'
     ) {
@@ -1219,8 +1214,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                   <button
                     key={m.id}
                     onClick={() => handleAssignMatchToSlot(m.id)}
-                    disabled={!isMatchSchedulingUnlocked(m, allMatches)}
-                    className="w-full text-left p-3 rounded-lg bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-400 transition-all text-xs space-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-50 disabled:hover:border-slate-200"
+                    className="w-full text-left p-3 rounded-lg bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-400 transition-all text-xs space-y-1"
                   >
                     <div className="flex items-center justify-between text-slate-500">
                       <span className="font-semibold text-slate-800">{m.roundName}</span>
@@ -1230,11 +1224,6 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                       {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : m.pair1Placeholder} vs{' '}
                       {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : m.pair2Placeholder}
                     </p>
-                    {!isMatchSchedulingUnlocked(m, allMatches) && (
-                      <p className="text-[10px] font-medium text-amber-700">
-                        En attente de la fin officielle du tour précédent
-                      </p>
-                    )}
                     {m.scheduledTime && (
                       <p className="text-[10px] text-amber-700 font-medium">
                         Déjà programmé à {m.scheduledTime}
