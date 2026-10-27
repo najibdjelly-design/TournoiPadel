@@ -382,27 +382,70 @@ export function createConflictFreeSchedule(
     ));
   }
 
-  for (const bracketStage of bracketStages) {
-    stages.push(bracketStage);
-  }
-
   const consolationRounds = [...new Set(
     consolanteMatches
       .filter(match => match.bracketRound !== undefined && isMatchSchedulable(match))
       .map(match => match.bracketRound!)
   )].sort((a, b) => a - b);
 
-  for (const round of consolationRounds) {
-    stages.push(consolanteMatches.filter(match =>
-      match.bracketRound === round && isMatchSchedulable(match)
-    ));
+  const consolationReleaseRound = new Map<string, number>();
+  const addConsolationRelease = (matchId: string | undefined, sourceRound: number) => {
+    if (!matchId) return false;
+    const previousRound = consolationReleaseRound.get(matchId);
+    if (previousRound !== undefined && previousRound >= sourceRound) return false;
+    consolationReleaseRound.set(matchId, sourceRound);
+    return true;
+  };
+
+  for (const match of bracketMatches) {
+    if (match.type === 'bracket' && match.bracketRound !== undefined) {
+      addConsolationRelease(match.loserNextMatchId, match.bracketRound);
+    }
   }
+
+  let releaseRoundChanged = true;
+  while (releaseRoundChanged) {
+    releaseRoundChanged = false;
+    for (const match of consolanteMatches) {
+      const sourceRound = consolationReleaseRound.get(match.id);
+      if (sourceRound === undefined) continue;
+      if (addConsolationRelease(match.nextMatchId, sourceRound)) {
+        releaseRoundChanged = true;
+      }
+      if (addConsolationRelease(match.loserNextMatchId, sourceRound)) {
+        releaseRoundChanged = true;
+      }
+    }
+  }
+
+  const addConsolationStages = (sourceRound?: number) => {
+    for (const round of consolationRounds) {
+      const stage = consolanteMatches.filter(match =>
+        match.bracketRound === round &&
+        isMatchSchedulable(match) &&
+        (sourceRound === undefined
+          ? !consolationReleaseRound.has(match.id)
+          : consolationReleaseRound.get(match.id) === sourceRound)
+      );
+      if (stage.length) stages.push(stage);
+    }
+  };
+
+  for (const bracketStage of bracketStages) {
+    stages.push(bracketStage);
+    const round = bracketStage[0]?.bracketRound;
+    if (round !== undefined) addConsolationStages(round);
+  }
+
+  addConsolationStages();
+
   const stagedMatchIds = new Set(stages.flat().map(match => match.id));
-  const otherMatches = allMatches.filter(match => !stagedMatchIds.has(match.id));
-  const nonBracketOtherMatches = otherMatches.filter(
-    match => match.type !== 'bracket' && match.type !== 'consolante'
+  const otherPoolMatches = allMatches.filter(match =>
+    !stagedMatchIds.has(match.id) &&
+    match.type === 'pool' &&
+    isMatchSchedulable(match)
   );
-  if (nonBracketOtherMatches.length) stages.unshift(nonBracketOtherMatches);
+  if (otherPoolMatches.length) stages.unshift(otherPoolMatches);
   const nonEmptyStages = stages.filter(stage => stage.length > 0);
   const stageIndexByMatchId = new Map<string, number>();
   nonEmptyStages.forEach((stage, index) => {
