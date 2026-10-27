@@ -359,17 +359,18 @@ export function createConflictFreeSchedule(
     );
   };
 
-  const mainBracketRounds = [...new Set(
+  const bracketRounds = [...new Set(
     bracketMatches
-      .filter(match =>
-        match.type === 'bracket' &&
-        match.bracketRound !== undefined &&
-        isMatchSchedulable(match)
-      )
+      .filter(match => match.type === 'bracket' && match.bracketRound !== undefined && isMatchSchedulable(match))
       .map(match => match.bracketRound!)
   )].sort((a, b) => a - b);
+  const bracketStages: Match[][] = bracketRounds.map(round =>
+    bracketMatches.filter(match => match.type === 'bracket' && match.bracketRound === round && isMatchSchedulable(match))
+  );
+
   const stages: Match[][] = [];
   const poolPhases = [...new Set(pools.map(pool => pool.phase ?? 1))].sort((a, b) => a - b);
+
   for (const phase of poolPhases) {
     const phasePoolIds = new Set(
       pools.filter(pool => (pool.phase ?? 1) === phase).map(pool => pool.id)
@@ -380,18 +381,17 @@ export function createConflictFreeSchedule(
       phasePoolIds.has(match.poolId)
     ));
   }
-  for (const round of mainBracketRounds) {
-    stages.push(bracketMatches.filter(match =>
-      match.type === 'bracket' &&
-      match.bracketRound === round &&
-      isMatchSchedulable(match)
-    ));
+
+  for (const bracketStage of bracketStages) {
+    stages.push(bracketStage);
   }
+
   const consolationRounds = [...new Set(
     consolanteMatches
       .filter(match => match.bracketRound !== undefined && isMatchSchedulable(match))
       .map(match => match.bracketRound!)
   )].sort((a, b) => a - b);
+
   for (const round of consolationRounds) {
     stages.push(consolanteMatches.filter(match =>
       match.bracketRound === round && isMatchSchedulable(match)
