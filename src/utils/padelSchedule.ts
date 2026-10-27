@@ -411,8 +411,13 @@ export function createConflictFreeSchedule(
 
   const getMatchEndAt = (match: Match): number | undefined => {
     if (match.status === 'completed' || match.status === 'walkover') {
-      const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
-      return Number.isFinite(completedAt) ? completedAt : startMs;
+      const completedAt = match.completedAt ? Date.parse(match.completedAt) : NaN;
+      if (Number.isFinite(completedAt)) return completedAt;
+      const fixedStart = scheduledStart(match);
+      if (fixedStart !== undefined) {
+        return fixedStart + (match.durationMinutes ?? slotDuration) * 60_000;
+      }
+      return nowMs ?? startMs;
     }
     if (match.status === 'in_progress' || match.status === 'warmup') {
       const startedAt = match.startedAt ? Date.parse(match.startedAt) : NaN;
@@ -526,9 +531,7 @@ export function createConflictFreeSchedule(
       continue;
     }
 
-    const waveStartBarrier = waveIndex === 0
-      ? startMs
-      : previousWaveEnd + 60_000;
+    const waveStartBarrier = waveIndex === 0 ? startMs : previousWaveEnd;
 
     while (wavePending.length > 0) {
       let best: {
