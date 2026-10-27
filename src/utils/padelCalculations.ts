@@ -390,7 +390,8 @@ export function generateKnockoutBracket(
  */
 export function generateFullClassificationTournament(
   tournamentId: string,
-  size: 4 | 8 | 16 | 24 | 32 = 24
+  size: 4 | 8 | 16 | 24 | 32 = 24,
+  entrantCount: number = size
 ): { bracketMatches: Match[]; consolanteMatches: Match[] } {
   const timestamp = Date.now();
   let mCounter = 1;
@@ -919,7 +920,7 @@ export function generateFullClassificationTournament(
       petiteFinale,
     ];
 
-    const consolanteMatches = [
+    let consolanteMatches = [
       // Places 5 à 8
       ...c58Demis,
       match5e,
@@ -941,6 +942,19 @@ export function generateFullClassificationTournament(
       match21e,
       match23e,
     ];
+
+    if (entrantCount <= 16) {
+      consolanteMatches = consolanteMatches.filter(
+        match => {
+          const upperRank = Number((match.classificationRankRange ?? '').split('-')[1]);
+          return Number.isFinite(upperRank) && upperRank <= 16;
+        }
+      );
+      r1Main.forEach(match => {
+        match.loserNextMatchId = undefined;
+        match.loserNextMatchSlot = undefined;
+      });
+    }
 
     return { bracketMatches, consolanteMatches };
   }
@@ -1509,7 +1523,12 @@ export function generateFullClassificationTournament(
  */
 export function computeCompleteFinalStandings(tournament: Tournament): FinalStandingItem[] {
   const allMatches = [...tournament.bracketMatches, ...tournament.consolanteMatches];
-  const maxTeams = tournament.bracketMatches.length >= 20 ? 24 : tournament.bracketMatches.length >= 10 ? 16 : 8;
+  const configuredMaxTeams =
+    tournament.bracketMatches.length >= 20 ? 24 : tournament.bracketMatches.length >= 10 ? 16 : 8;
+  const confirmedTeams = tournament.pairs.filter(pair => pair.status === 'confirmed').length;
+  const maxTeams = confirmedTeams > 0
+    ? Math.min(configuredMaxTeams, confirmedTeams)
+    : configuredMaxTeams;
 
   const standings: FinalStandingItem[] = [];
 

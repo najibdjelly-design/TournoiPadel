@@ -3,6 +3,7 @@ import { Tournament, Match, Pair, Court, MatchStatus } from '../../types/tournam
 import { formatScore } from '../../utils/padelCalculations';
 import {
   compactConsolanteLoserSlots,
+  applyScheduleAssignments,
   createConflictFreeSchedule,
   isMatchPlayable,
   isMatchSchedulable,
@@ -145,7 +146,16 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   // Status changer for a match
   const handleSetMatchStatus = (matchId: string, status: MatchStatus) => {
     const updateMatchInArray = (arr: Match[]) =>
-      arr.map(m => (m.id === matchId ? { ...m, status } : m));
+      arr.map(m => {
+        if (m.id !== matchId) return m;
+        if (status === 'in_progress' || status === 'warmup') {
+          return { ...m, status, startedAt: new Date().toISOString() };
+        }
+        if (status === 'completed') {
+          return { ...m, status, completedAt: new Date().toISOString() };
+        }
+        return { ...m, status };
+      });
 
     onUpdateTournament({
       ...tournament,
@@ -479,30 +489,24 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       compactedConsolante.consolanteMatches,
       tournament.courts,
       startTime,
-      slotDuration
+      slotDuration,
+      {
+        scheduleDate: tournament.dates.start,
+        ...(tournament.status === 'in_progress' ? { currentTime: new Date() } : {}),
+      }
     );
 
-    const applySchedule = (
-      matches: Match[],
-      isSchedulable: (match: Match) => boolean = isMatchSchedulable
-    ) =>
-      matches.map(match => {
-        const assignment = scheduledMatches.get(match.id);
-        if (assignment) {
-          return { ...match, courtId: assignment.courtId, scheduledTime: assignment.time };
-        }
-        return isSchedulable(match)
-          ? match
-          : { ...match, courtId: undefined, scheduledTime: undefined };
-      });
     const updatedPools = tournament.pools.map(pool => ({
       ...pool,
-      matches: applySchedule(pool.matches),
+      matches: applyScheduleAssignments(pool.matches, scheduledMatches),
     }));
-    const updatedBracket = applySchedule(compactedConsolante.bracketMatches, isMatchPlayable);
-    const updatedConsolante = applySchedule(
+    const updatedBracket = applyScheduleAssignments(
+      compactedConsolante.bracketMatches,
+      scheduledMatches
+    );
+    const updatedConsolante = applyScheduleAssignments(
       compactedConsolante.consolanteMatches,
-      isMatchPlayable
+      scheduledMatches
     );
 
     onUpdateTournament({

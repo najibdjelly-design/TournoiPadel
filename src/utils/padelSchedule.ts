@@ -3,6 +3,79 @@ import type { Court, Match, Pool } from '../types/tournament';
 export interface ScheduleAssignment {
   courtId: string;
   time: string;
+  scheduledAt: string;
+}
+
+export interface ScheduleOptions {
+  currentTime?: Date;
+  scheduleDate?: string;
+}
+
+function isByePlaceholder(placeholder?: string): boolean {
+  return Boolean(placeholder && /\b(?:bye|exempt)\b/i.test(placeholder));
+}
+
+function matchHasBye(match: Match, slot: 'pair1' | 'pair2'): boolean {
+  return !match[`${slot}Id`] && isByePlaceholder(match[`${slot}Placeholder`]);
+}
+
+function setMatchSlot(match: Match, slot: 'pair1' | 'pair2', pairId?: string): Match {
+  return {
+    ...match,
+    [`${slot}Id`]: pairId,
+    [`${slot}Placeholder`]: pairId ? undefined : 'Bye',
+  };
+}
+
+export function resolveBracketByes(
+  bracketMatches: Match[],
+  consolanteMatches: Match[]
+): { bracketMatches: Match[]; consolanteMatches: Match[] } {
+  let main = bracketMatches.map(match => ({ ...match }));
+  let consolation = consolanteMatches.map(match => ({ ...match }));
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    const allMatches = [...main, ...consolation];
+
+    for (const match of allMatches) {
+      if (match.status === 'completed' || match.status === 'walkover') continue;
+
+      const pair1IsBye = matchHasBye(match, 'pair1');
+      const pair2IsBye = matchHasBye(match, 'pair2');
+      if (!pair1IsBye && !pair2IsBye) continue;
+
+      const winnerPairId = pair1IsBye
+        ? (pair2IsBye ? undefined : match.pair2Id)
+        : match.pair1Id;
+      if (!pair1IsBye || !pair2IsBye) {
+        if (!winnerPairId) continue;
+      }
+
+      const resolved: Match = {
+        ...match,
+        status: 'walkover',
+        winnerPairId,
+        score: { sets: [], winnerPairId, isWalkover: true },
+        courtId: undefined,
+        scheduledTime: undefined,
+        scheduledAt: undefined,
+      };
+
+      const updateMatch = (candidate: Match): Match => {
+        if (candidate.id === match.id) return resolved;
+        if (!match.nextMatchId || candidate.id !== match.nextMatchId) return candidate;
+        const targetSlot = match.nextMatchSlot;
+        return targetSlot ? setMatchSlot(candidate, targetSlot, winnerPairId) : candidate;
+      };
+      main = main.map(updateMatch);
+      consolation = consolation.map(updateMatch);
+      changed = true;
+    }
+  }
+
+  return { bracketMatches: main, consolanteMatches: consolation };
 }
 
 function hasParticipant(pairId?: string, placeholder?: string): boolean {
@@ -25,10 +98,7 @@ export function isMatchSchedulable(
 export function isMatchPlayable(
   match: Pick<Match, 'pair1Id' | 'pair1Placeholder' | 'pair2Id' | 'pair2Placeholder'>
 ): boolean {
-  return (
-    hasParticipant(match.pair1Id, match.pair1Placeholder) &&
-    hasParticipant(match.pair2Id, match.pair2Placeholder)
-  );
+  return Boolean(match.pair1Id && match.pair2Id);
 }
 
 export const isConsolanteMatchSchedulable = isMatchPlayable;
@@ -55,7 +125,7 @@ export function compactConsolanteLoserSlots(
   let updatedConsolante = consolanteMatches;
 
   for (const { sources, targets } of groups.values()) {
-    if (!sources.some(source => !isMatchPlayable(source))) continue;
+    if (!sources.some(source => source.status === 'walkover')) continue;
 
     const orderedSources = [...sources].sort((a, b) => a.matchNumber - b.matchNumber);
     const orderedTargets = [...targets].sort((a, b) => a.matchNumber - b.matchNumber);
@@ -114,12 +184,17 @@ function parseTime(time: string): number | null {
   return hours * 60 + minutes;
 }
 
-function formatTime(startTime: string, slotIndex: number, durationMinutes: number): string {
-  const start = parseTime(startTime) ?? 9 * 60;
-  const totalMinutes = start + slotIndex * durationMinutes;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+function getScheduleStart(startTime: string, options: ScheduleOptions): Date {
+  if (options.currentTime) return new Date(options.currentTime);
+  const date = options.scheduleDate || new Date().toISOString().slice(0, 10);
+  const minutes = parseTime(startTime) ?? 9 * 60;
+  const start = new Date(`${date}T00:00:00`);
+  start.setMinutes(minutes);
+  return start;
+}
+
+function formatTime(date: Date): string {
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 }
 
 export function createConflictFreeSchedule(
@@ -128,111 +203,133 @@ export function createConflictFreeSchedule(
   consolanteMatches: Match[],
   courts: Court[],
   startTime: string,
-  slotDuration: number
+  slotDuration: number,
+  options: ScheduleOptions = {}
 ): Map<string, ScheduleAssignment> {
   if (!courts.length) throw new Error('Au moins un terrain est nécessaire.');
 
-  let slotIndex = 0;
+  const scheduleStart = getScheduleStart(startTime, options);
   const assignments = new Map<string, ScheduleAssignment>();
-  const pairLastSlot = new Map<string, number>();
-  const pairMatchCount = new Map<string, number>();
+  const allMatches = [
+    ...pools.flatMap(pool => pool.matches),
+    ...bracketMatches,
+    ...consolanteMatches,
+  ];
+  const pairAvailableAt = new Map<string, number>();
+  const courtAvailableAt = new Map(courts.map(court => [court.id, scheduleStart.getTime()]));
+  const startMs = scheduleStart.getTime();
+  const nowMs = options.currentTime?.getTime();
 
-  const scheduleStage = (
-    stageMatches: Match[],
-    canSchedule: (match: Match) => boolean = isMatchSchedulable
-  ) => {
-    const pending = stageMatches
-      .filter(canSchedule)
-      .sort((a, b) => a.matchNumber - b.matchNumber);
-    while (pending.length > 0) {
-      const usedPairs = new Set<string>();
-      let courtIndex = 0;
-      let scheduledThisSlot = 0;
-
-      while (courtIndex < courts.length) {
-        const eligible = pending
-          .filter(match => {
-            const pairIds = [match.pair1Id, match.pair2Id].filter(
-              (pairId): pairId is string => Boolean(pairId)
-            );
-            return pairIds.every(pairId => !usedPairs.has(pairId));
-          })
-          .sort((a, b) => {
-            const priority = (match: Match) => {
-              const ids = [match.pair1Id, match.pair2Id].filter(
-                (pairId): pairId is string => Boolean(pairId)
-              );
-              return {
-                playedCount: ids.reduce(
-                  (total, id) => total + (pairMatchCount.get(id) ?? 0),
-                  0
-                ),
-                lastPlayed: Math.max(-1, ...ids.map(id => pairLastSlot.get(id) ?? -1)),
-              };
-            };
-            const first = priority(a);
-            const second = priority(b);
-            return (
-              first.playedCount - second.playedCount ||
-              first.lastPlayed - second.lastPlayed ||
-              a.matchNumber - b.matchNumber
-            );
-          });
-
-        const nextMatch = eligible[0];
-        if (!nextMatch) break;
-
-        const court = courts[courtIndex++];
-        assignments.set(nextMatch.id, {
-          courtId: court.id,
-          time: formatTime(startTime, slotIndex, slotDuration),
-        });
-        for (const pairId of [nextMatch.pair1Id, nextMatch.pair2Id]) {
-          if (!pairId) continue;
-          usedPairs.add(pairId);
-          pairLastSlot.set(pairId, slotIndex);
-          pairMatchCount.set(pairId, (pairMatchCount.get(pairId) ?? 0) + 1);
-        }
-        pending.splice(pending.findIndex(match => match.id === nextMatch.id), 1);
-        scheduledThisSlot++;
-      }
-
-      if (scheduledThisSlot === 0) {
-        throw new Error('Le planificateur ne peut pas affecter les matches restants.');
-      }
-      slotIndex++;
-    }
+  const setPairAvailability = (pairId: string | undefined, timestamp: number) => {
+    if (!pairId) return;
+    pairAvailableAt.set(pairId, Math.max(pairAvailableAt.get(pairId) ?? startMs, timestamp));
   };
 
-  const poolPhases = [...new Set(pools.map(pool => pool.phase ?? 1))].sort((a, b) => a - b);
-  for (const phase of poolPhases) {
-    scheduleStage(
-      pools
-        .filter(pool => (pool.phase ?? 1) === phase)
-        .flatMap(pool => pool.matches)
-    );
+  for (const match of allMatches) {
+    const duration = (match.durationMinutes ?? slotDuration) * 60_000;
+    if (match.status === 'completed' || match.status === 'walkover') {
+      const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
+      const availableAt = Number.isFinite(completedAt) ? completedAt : startMs;
+      setPairAvailability(match.pair1Id, availableAt);
+      setPairAvailability(match.pair2Id, availableAt);
+      continue;
+    }
+
+    if (match.status !== 'in_progress' && match.status !== 'warmup') continue;
+    const startedAt = match.startedAt ? Date.parse(match.startedAt) : NaN;
+    const scheduledAt = match.scheduledAt ? Date.parse(match.scheduledAt) : NaN;
+    const start = Number.isFinite(startedAt)
+      ? startedAt
+      : Number.isFinite(scheduledAt)
+        ? scheduledAt
+        : (nowMs ?? startMs);
+    const availableAt = Math.max(nowMs ?? start, start + duration);
+    setPairAvailability(match.pair1Id, availableAt);
+    setPairAvailability(match.pair2Id, availableAt);
+    if (match.courtId && courtAvailableAt.has(match.courtId)) {
+      courtAvailableAt.set(
+        match.courtId,
+        Math.max(courtAvailableAt.get(match.courtId) ?? startMs, availableAt)
+      );
+    }
   }
 
-  const bracketRounds = [...new Set(
-    bracketMatches.map(match => match.bracketRound ?? 1)
-  )].sort((a, b) => a - b);
-  const consolanteRounds = [...new Set(
-    consolanteMatches.map(match => match.bracketRound ?? 1)
-  )].sort((a, b) => a - b);
-  const knockoutRounds = [...new Set([...bracketRounds, ...consolanteRounds])]
-    .sort((a, b) => a - b);
-  for (const round of knockoutRounds) {
-    scheduleStage(
-      bracketMatches.filter(match => (match.bracketRound ?? 1) === round),
-      isMatchPlayable
-    );
-    scheduleStage(
-      consolanteMatches
-        .filter(match => (match.bracketRound ?? 1) === round)
-        .filter(isMatchPlayable),
-      isMatchPlayable
-    );
+  const pending = allMatches.filter(match =>
+    match.status !== 'completed' &&
+    match.status !== 'walkover' &&
+    match.status !== 'in_progress' &&
+    match.status !== 'warmup' &&
+    isMatchPlayable(match)
+  );
+
+  while (pending.length > 0) {
+    let best: {
+      match: Match;
+      court: Court;
+      startAt: number;
+    } | undefined;
+
+    for (const match of pending) {
+      const pairReadyAt = Math.max(
+        startMs,
+        pairAvailableAt.get(match.pair1Id!) ?? startMs,
+        pairAvailableAt.get(match.pair2Id!) ?? startMs
+      );
+      for (const court of courts) {
+        const startAt = Math.max(pairReadyAt, courtAvailableAt.get(court.id) ?? startMs);
+        if (
+          !best ||
+          startAt < best.startAt ||
+          (startAt === best.startAt && match.matchNumber < best.match.matchNumber)
+        ) {
+          best = { match, court, startAt };
+        }
+      }
+    }
+
+    if (!best) break;
+
+    const duration = (best.match.durationMinutes ?? slotDuration) * 60_000;
+    const availableAt = best.startAt + duration;
+    assignments.set(best.match.id, {
+      courtId: best.court.id,
+      time: formatTime(new Date(best.startAt)),
+      scheduledAt: new Date(best.startAt).toISOString(),
+    });
+    courtAvailableAt.set(best.court.id, availableAt);
+    setPairAvailability(best.match.pair1Id, availableAt);
+    setPairAvailability(best.match.pair2Id, availableAt);
+    pending.splice(pending.findIndex(match => match.id === best!.match.id), 1);
   }
 
   return assignments;
+}
+
+export function applyScheduleAssignments(
+  matches: Match[],
+  assignments: Map<string, ScheduleAssignment>
+): Match[] {
+  return matches.map(match => {
+    const assignment = assignments.get(match.id);
+    if (assignment) {
+      return {
+        ...match,
+        courtId: assignment.courtId,
+        scheduledTime: assignment.time,
+        scheduledAt: assignment.scheduledAt,
+      };
+    }
+    if (
+      match.status === 'completed' ||
+      match.status === 'walkover' ||
+      match.status === 'in_progress' ||
+      match.status === 'warmup'
+    ) return match;
+    return {
+      ...match,
+      courtId: undefined,
+      scheduledTime: undefined,
+      scheduledAt: undefined,
+    };
+  });
 }

@@ -24,7 +24,12 @@ import { ScoreModal } from './components/modals/ScoreModal';
 import { NewTournamentModal } from './components/modals/NewTournamentModal';
 import { TournamentsManagerModal } from './components/modals/TournamentsManagerModal';
 import { computePoolStandings } from './utils/padelCalculations';
-import { compactConsolanteLoserSlots } from './utils/padelSchedule';
+import {
+  applyScheduleAssignments,
+  compactConsolanteLoserSlots,
+  createConflictFreeSchedule,
+  resolveBracketByes,
+} from './utils/padelSchedule';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -255,6 +260,7 @@ export default function App() {
           score,
           winnerPairId,
           status: 'completed',
+          completedAt: new Date().toISOString(),
         };
         const updatedPool = { ...pool, matches: matchesCopy };
         updatedPool.standings = computePoolStandings(updatedPool, pairsMap);
@@ -287,6 +293,7 @@ export default function App() {
                 score,
                 winnerPairId,
                 status: 'completed' as const,
+                completedAt: new Date().toISOString(),
               };
             }
 
@@ -337,6 +344,38 @@ export default function App() {
         updated.bracketMatches = updateMatchList(updated.bracketMatches);
         updated.consolanteMatches = updateMatchList(updated.consolanteMatches);
       }
+    }
+
+    const resolvedByes = resolveBracketByes(
+      updated.bracketMatches,
+      updated.consolanteMatches
+    );
+    updated.bracketMatches = resolvedByes.bracketMatches;
+    updated.consolanteMatches = resolvedByes.consolanteMatches;
+
+    if (updated.courts.length > 0) {
+      const currentTime = new Date();
+      const assignments = createConflictFreeSchedule(
+        updated.pools,
+        updated.bracketMatches,
+        updated.consolanteMatches,
+        updated.courts,
+        updated.firstMatchTime || '09:00',
+        updated.slotDurationMinutes || 75,
+        { currentTime }
+      );
+      updated.pools = updated.pools.map(pool => ({
+        ...pool,
+        matches: applyScheduleAssignments(pool.matches, assignments),
+      }));
+      updated.bracketMatches = applyScheduleAssignments(
+        updated.bracketMatches,
+        assignments
+      );
+      updated.consolanteMatches = applyScheduleAssignments(
+        updated.consolanteMatches,
+        assignments
+      );
     }
 
     boltClient.saveTournament(updated);

@@ -26,12 +26,20 @@ import {
   ArrowLeft,
   ChevronRight,
 } from 'lucide-react';
-import { compactConsolanteLoserSlots } from '../../utils/padelSchedule';
+import { compactConsolanteLoserSlots, resolveBracketByes } from '../../utils/padelSchedule';
 
 interface TableauModuleProps {
   tournament: Tournament;
   onUpdateTournament: (updated: Tournament) => void;
   onOpenScoreModal: (match: Match) => void;
+}
+
+function buildSeedOrder(size: number): number[] {
+  let order = [1, 2];
+  for (let bracketSize = 2; bracketSize < size; bracketSize *= 2) {
+    order = order.flatMap(seed => [seed, bracketSize * 2 + 1 - seed]);
+  }
+  return order;
 }
 
 export const TableauModule: React.FC<TableauModuleProps> = ({
@@ -81,46 +89,51 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   // Generate full tournament with automatic matching classification matches (1 to N)
   const handleGenerateFullTournament = (size: 4 | 8 | 16 | 24 | 32 = bracketSize) => {
-    const { bracketMatches: newMainMatches, consolanteMatches: newConsolanteMatches } =
-      generateFullClassificationTournament(tournament.id, size);
-
     const confirmed = tournament.pairs.filter((p) => p.status === 'confirmed');
     const sortedPairs = [...confirmed].sort((a, b) => a.totalWeight - b.totalWeight);
+    const { bracketMatches: generatedMainMatches, consolanteMatches: generatedConsolanteMatches } =
+      generateFullClassificationTournament(tournament.id, size, confirmed.length);
+    let newMainMatches = generatedMainMatches;
+    let newConsolanteMatches = generatedConsolanteMatches;
 
     if (size === 24) {
-      // In 24-draw: TS 1 to 8 receive Byes directly into 1/8th finals (Round 2)
-      const r2Matches = newMainMatches.filter((m) => m.bracketRound === 2);
-      for (let s = 0; s < 8; s++) {
-        if (sortedPairs[s] && r2Matches[s]) {
-          r2Matches[s].pair1Id = sortedPairs[s].id;
-        }
-      }
-      // Round 1 (1/16e) receives remaining seeded/qualifier players
+      const entrants = sortedPairs.slice(0, size);
+      const directEntries = entrants.slice(0, 8);
+      const firstRoundEntries = entrants.slice(8);
       const r1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
-      for (let s = 0; s < 8; s++) {
-        if (sortedPairs[8 + s * 2] && r1Matches[s]) {
-          r1Matches[s].pair1Id = sortedPairs[8 + s * 2].id;
-        }
-        if (sortedPairs[8 + s * 2 + 1] && r1Matches[s]) {
-          r1Matches[s].pair2Id = sortedPairs[8 + s * 2 + 1].id;
-        }
-      }
+      const r2Matches = newMainMatches.filter((m) => m.bracketRound === 2);
+
+      r1Matches.forEach((match, index) => {
+        const firstEntry = firstRoundEntries[index * 2];
+        const secondEntry = firstRoundEntries[index * 2 + 1];
+        match.pair1Id = firstEntry?.id;
+        match.pair2Id = secondEntry?.id;
+        match.pair1Placeholder = firstEntry ? undefined : 'Bye';
+        match.pair2Placeholder = secondEntry ? undefined : 'Bye';
+      });
+
+      r2Matches.forEach((match, index) => {
+        const seedRank = buildSeedOrder(8)[index];
+        const directEntry = directEntries[seedRank - 1];
+        match.pair1Id = directEntry?.id;
+        if (!directEntry) match.pair1Placeholder = 'Bye';
+      });
     } else {
-      // Standard distribution of top seeds
       const round1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
-      if (round1Matches.length > 0) {
-        if (sortedPairs[0]) round1Matches[0].pair1Id = sortedPairs[0].id;
-        if (sortedPairs[1] && round1Matches.length > 1) {
-          round1Matches[round1Matches.length - 1].pair2Id = sortedPairs[1].id;
-        }
-        if (sortedPairs[2] && round1Matches.length > 2) {
-          round1Matches[Math.floor(round1Matches.length / 2)].pair1Id = sortedPairs[2].id;
-        }
-        if (sortedPairs[3] && round1Matches.length > 3) {
-          round1Matches[Math.floor(round1Matches.length / 2) - 1].pair2Id = sortedPairs[3].id;
-        }
-      }
+      const seedOrder = buildSeedOrder(round1Matches.length * 2);
+      round1Matches.forEach((match, index) => {
+        const pair1 = sortedPairs[seedOrder[index * 2] - 1];
+        const pair2 = sortedPairs[seedOrder[index * 2 + 1] - 1];
+        match.pair1Id = pair1?.id;
+        match.pair2Id = pair2?.id;
+        if (!pair1) match.pair1Placeholder = 'Bye';
+        if (!pair2) match.pair2Placeholder = 'Bye';
+      });
     }
+
+    const resolvedByes = resolveBracketByes(newMainMatches, newConsolanteMatches);
+    newMainMatches = resolvedByes.bracketMatches;
+    newConsolanteMatches = resolvedByes.consolanteMatches;
 
     onUpdateTournament({
       ...tournament,
@@ -827,7 +840,8 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                         {roundMatches.map((match) => {
                           const p1 = match.pair1Id ? pairsMap.get(match.pair1Id) : undefined;
                           const p2 = match.pair2Id ? pairsMap.get(match.pair2Id) : undefined;
-                          const isCompleted = match.status === 'completed';
+                          const isCompleted =
+                            match.status === 'completed' || match.status === 'walkover';
 
                           return (
                             <div
@@ -848,17 +862,23 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                     </span>
                                   )}
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenScoreModal(match)}
-                                  className={`px-2 py-0.5 rounded font-mono font-bold text-xs transition-colors shrink-0 ${
-                                    isCompleted
-                                      ? 'bg-slate-200 text-slate-800 hover:bg-slate-300'
-                                      : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                  }`}
-                                >
-                                  {isCompleted ? 'Score' : 'Saisir'}
-                                </button>
+                                {match.status === 'walkover' ? (
+                                  <span className="shrink-0 rounded bg-slate-200 px-2 py-0.5 font-mono text-xs font-bold text-slate-600">
+                                    Bye
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenScoreModal(match)}
+                                    className={`px-2 py-0.5 rounded font-mono font-bold text-xs transition-colors shrink-0 ${
+                                      isCompleted
+                                        ? 'bg-slate-200 text-slate-800 hover:bg-slate-300'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                    }`}
+                                  >
+                                    {isCompleted ? 'Score' : 'Saisir'}
+                                  </button>
+                                )}
                               </div>
 
                               {/* Opponents Slots */}

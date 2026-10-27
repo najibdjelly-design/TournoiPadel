@@ -213,7 +213,7 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
                   const opponent = opponentId ? pairsMap.get(opponentId) : undefined;
                   const opponentPlaceholder = isPair1 ? m.pair2Placeholder : m.pair1Placeholder;
 
-                  const isFinished = m.status === 'completed';
+                  const isFinished = m.status === 'completed' || m.status === 'walkover';
                   const isLive = m.status === 'in_progress';
                   const isWinner = isFinished && m.winnerPairId === pair.id;
                   const isLoser = isFinished && m.winnerPairId && m.winnerPairId !== pair.id;
@@ -246,6 +246,11 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
                         {isLive && (
                           <span className="flex items-center gap-1 font-bold text-amber-800 text-[11px] animate-pulse">
                             <Radio className="w-3.5 h-3.5 text-amber-600" /> En Direct
+                          </span>
+                        )}
+                        {m.status === 'walkover' && (
+                          <span className="flex items-center gap-1 text-slate-500 text-[11px]">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Qualification par bye
                           </span>
                         )}
                         {!isFinished && !isLive && (

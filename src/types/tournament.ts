@@ -67,6 +67,9 @@ export interface Match {
   status: MatchStatus;
   courtId?: string;
   scheduledTime?: string; // e.g. "09:30"
+  scheduledAt?: string;
+  startedAt?: string;
+  completedAt?: string;
   durationMinutes?: number;
   bracketRound?: number; // 1 for R16, 2 for QF, 3 for SF, 4 for Final
   bracketSlotIndex?: number;
