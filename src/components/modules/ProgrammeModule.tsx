@@ -121,7 +121,17 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       if (minutes === null) return lastSlot;
       return Math.max(lastSlot, Math.floor((minutes - startMinutes) / slotDuration));
     }, -1);
-    return generateTimeSlots(startTime, slotDuration, Math.max(10, lastScheduledSlot + 2));
+    const regularSlots = generateTimeSlots(
+      startTime,
+      slotDuration,
+      Math.max(10, lastScheduledSlot + 2)
+    );
+    const scheduledTimes = scheduledMatches
+      .map(match => match.scheduledTime!)
+      .filter(time => timeToMinutes(time) !== null);
+    return [...new Set([...regularSlots, ...scheduledTimes])].sort(
+      (a, b) => (timeToMinutes(a) ?? 0) - (timeToMinutes(b) ?? 0)
+    );
   }, [startTime, slotDuration, allMatches]);
 
   // Matches not yet scheduled with time or court
@@ -523,8 +533,9 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       const minutes = timeToMinutes(assignment.time) ?? -1;
       return minutes > latest.minutes ? { time: assignment.time, minutes } : latest;
     }, { time: startTime, minutes: timeToMinutes(startTime) ?? 0 }).time;
-    setOptimizationReport(
-      `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Aucun joueur n’est programmé en même temps sur deux terrains.`
+    setOptimizationReport(totalScheduled > 0
+      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Aucun joueur n’est programmé en même temps sur deux terrains.`
+      : 'Aucun match ne peut encore être programmé : il faut que les deux paires soient connues pour chaque rencontre.'
     );
     setShowOptimizerPanel(true);
   };
