@@ -133,6 +133,16 @@ export default function App() {
     }
   };
 
+  const handleTogglePublicMode = () => {
+    if (isPublicMode || currentModule === 'public') {
+      setIsPublicMode(false);
+      if (currentModule === 'public') setCurrentModule('overview');
+      return;
+    }
+
+    setIsPublicMode(true);
+  };
+
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center text-sm font-semibold text-slate-600">Vérification de la session…</div>;
   }
@@ -450,7 +460,7 @@ export default function App() {
         onImport={handleImportJSON}
         onResetSeed={handleResetSeed}
         isPublicMode={isPublicMode}
-        onTogglePublicMode={() => setIsPublicMode(!isPublicMode)}
+        onTogglePublicMode={handleTogglePublicMode}
         userEmail={session.user.email || ''}
         onSignOut={handleSignOut}
         onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
@@ -467,10 +477,7 @@ export default function App() {
           {activeTournament ? (
             <PublicLiveModule
               tournament={activeTournament}
-              onExitPublic={() => {
-                setIsPublicMode(false);
-                setCurrentModule('overview');
-              }}
+              onExitPublic={handleTogglePublicMode}
             />
           ) : (
             <div className="py-20 text-center text-slate-400">
