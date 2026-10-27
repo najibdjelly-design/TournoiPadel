@@ -24,6 +24,7 @@ import { ScoreModal } from './components/modals/ScoreModal';
 import { NewTournamentModal } from './components/modals/NewTournamentModal';
 import { TournamentsManagerModal } from './components/modals/TournamentsManagerModal';
 import { computePoolStandings } from './utils/padelCalculations';
+import { compactConsolanteLoserSlots } from './utils/padelSchedule';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -264,6 +265,12 @@ export default function App() {
 
     // Check in bracket and consolante
     if (!matchFoundInPool) {
+      const compactedMatches = compactConsolanteLoserSlots(
+        updated.bracketMatches,
+        updated.consolanteMatches
+      );
+      updated.bracketMatches = compactedMatches.bracketMatches;
+      updated.consolanteMatches = compactedMatches.consolanteMatches;
       const allTournamentMatches = [...updated.bracketMatches, ...updated.consolanteMatches];
       const targetMatch = allTournamentMatches.find((m) => m.id === matchId);
 

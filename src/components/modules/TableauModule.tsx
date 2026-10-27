@@ -23,7 +23,10 @@ import {
   Copy,
   Check,
   Filter,
+  ArrowLeft,
+  ChevronRight,
 } from 'lucide-react';
+import { compactConsolanteLoserSlots } from '../../utils/padelSchedule';
 
 interface TableauModuleProps {
   tournament: Tournament;
@@ -37,6 +40,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   onOpenScoreModal,
 }) => {
   const [activeTab, setActiveTab] = useState<'main' | 'consolante' | 'standings'>('main');
+  const [classificationSourceRound, setClassificationSourceRound] = useState<number | null>(null);
   const [bracketSize, setBracketSize] = useState<4 | 8 | 16 | 24 | 32>(24); // Default 24 teams
   const [consolanteCategory, setConsolanteCategory] = useState<'all' | '5-8' | '9-16' | '17-24'>('all');
   const [isCopiedStandings, setIsCopiedStandings] = useState(false);
@@ -55,6 +59,14 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   const [isClearTableauModalOpen, setIsClearTableauModalOpen] = useState(false);
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map((p) => [p.id, p]));
+  const compactedConsolanteMatches = useMemo(
+    () =>
+      compactConsolanteLoserSlots(
+        tournament.bracketMatches,
+        tournament.consolanteMatches
+      ).consolanteMatches,
+    [tournament.bracketMatches, tournament.consolanteMatches]
+  );
 
   // Detect current main bracket capacity from existing matches
   const mainBracketCapacity = useMemo<number>(() => {
@@ -119,9 +131,33 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   // Filter consolante matches by rank bracket category
   const filteredConsolanteMatches = useMemo(() => {
-    if (consolanteCategory === 'all') return tournament.consolanteMatches;
+    if (classificationSourceRound !== null) {
+      const consolationById = new Map(compactedConsolanteMatches.map(match => [match.id, match]));
+      const relevantIds = new Set<string>();
+      const sourceMatches = compactConsolanteLoserSlots(
+        tournament.bracketMatches,
+        tournament.consolanteMatches
+      ).bracketMatches;
+      const pendingIds = sourceMatches
+        .filter(match => (match.bracketRound || 1) === classificationSourceRound)
+        .map(match => match.loserNextMatchId)
+        .filter((matchId): matchId is string => Boolean(matchId));
+
+      while (pendingIds.length > 0) {
+        const matchId = pendingIds.pop()!;
+        if (relevantIds.has(matchId)) continue;
+        const match = consolationById.get(matchId);
+        if (!match) continue;
+        relevantIds.add(matchId);
+        if (match.nextMatchId) pendingIds.push(match.nextMatchId);
+        if (match.loserNextMatchId) pendingIds.push(match.loserNextMatchId);
+      }
+
+      return compactedConsolanteMatches.filter(match => relevantIds.has(match.id));
+    }
+    if (consolanteCategory === 'all') return compactedConsolanteMatches;
     if (consolanteCategory === '5-8') {
-      return tournament.consolanteMatches.filter(
+      return compactedConsolanteMatches.filter(
         (m) =>
           m.classificationRankRange === '5-8' ||
           m.classificationRankRange === '5-6' ||
@@ -129,7 +165,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       );
     }
     if (consolanteCategory === '9-16') {
-      return tournament.consolanteMatches.filter(
+      return compactedConsolanteMatches.filter(
         (m) =>
           m.classificationRankRange === '9-16' ||
           m.classificationRankRange === '9-12' ||
@@ -141,7 +177,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       );
     }
     if (consolanteCategory === '17-24') {
-      return tournament.consolanteMatches.filter(
+      return compactedConsolanteMatches.filter(
         (m) =>
           m.classificationRankRange === '17-24' ||
           m.classificationRankRange === '17-20' ||
@@ -152,8 +188,13 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
           m.classificationRankRange === '23-24'
       );
     }
-    return tournament.consolanteMatches;
-  }, [consolanteCategory, tournament.consolanteMatches]);
+    return compactedConsolanteMatches;
+  }, [
+    classificationSourceRound,
+    consolanteCategory,
+    compactedConsolanteMatches,
+    tournament.bracketMatches,
+  ]);
 
   // Current matches displayed in tree view
   const currentDisplayedMatches = useMemo(() => {
@@ -312,10 +353,13 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Main / Consolante / Standings tabs */}
+          {/* Main bracket and official standings */}
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs font-bold overflow-x-auto">
             <button
-              onClick={() => setActiveTab('main')}
+              onClick={() => {
+                setClassificationSourceRound(null);
+                setActiveTab('main');
+              }}
               className={`px-3.5 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
                 activeTab === 'main'
                   ? 'bg-white text-emerald-800 shadow-xs'
@@ -325,17 +369,10 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               Tableau Principal ({tournament.bracketMatches.filter((m) => m.type !== 'consolante').length} m.)
             </button>
             <button
-              onClick={() => setActiveTab('consolante')}
-              className={`px-3.5 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
-                activeTab === 'consolante'
-                  ? 'bg-white text-amber-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Matchs de Classement ({tournament.consolanteMatches.length} m.)
-            </button>
-            <button
-              onClick={() => setActiveTab('standings')}
+              onClick={() => {
+                setClassificationSourceRound(null);
+                setActiveTab('standings');
+              }}
               className={`px-3.5 py-1.5 rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
                 activeTab === 'standings'
                   ? 'bg-white text-indigo-900 shadow-xs'
@@ -390,12 +427,24 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                <strong>Consolantes & Matchs de classement automatiques :</strong> Générés en fonction du tableau principal pour classer toutes les équipes. Les paires perdantes sont injectées automatiquement dès la saisie des scores. Vous conservez la flexibilité de modifier manuellement n&apos;importe quelle case.
+                <strong>Tableau de classement du tour :</strong> Les perdants des matchs jouables de ce tour sont regroupés ici. Les exempts et cases vides sont ignorés.
               </span>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setClassificationSourceRound(null);
+                setActiveTab('main');
+              }}
+              className="inline-flex items-center gap-1 self-start rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-bold text-amber-900 hover:bg-amber-100 sm:self-auto"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Retour au tableau
+            </button>
           </div>
 
           {/* Sub-filter tabs for classification brackets */}
+          {classificationSourceRound === null && (
           <div className="flex items-center gap-1.5 p-1 bg-white border border-slate-200 rounded-xl overflow-x-auto text-xs shadow-xs">
             <span className="text-slate-400 font-bold px-2 flex items-center gap-1">
               <Filter className="w-3 h-3" />
@@ -444,6 +493,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               </button>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -737,26 +787,36 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               <div className="flex items-stretch gap-6 min-w-[720px] pb-3">
                 {sortedRoundNumbers.map((roundNum) => {
                   const roundMatches = roundsMap.get(roundNum) || [];
+                  const roundTitle = activeTab === 'main'
+                    ? [...new Set(
+                        roundMatches.map(match =>
+                          match.roundName.replace(/\s*\(#\d+\)$/, '')
+                        )
+                      )].join(' / ')
+                    : `Tour de Classement ${roundNum}`;
 
                   return (
                     <div key={roundNum} className="flex-1 min-w-[260px] flex flex-col">
                       {/* Round Header */}
                       <div className="text-center pb-2.5 mb-3 border-b border-slate-200">
-                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-                          {activeTab === 'main'
-                            ? roundMatches.length === 1
-                              ? 'Grande Finale'
-                              : roundMatches.length === 2
-                              ? roundMatches.some((m) => m.targetRankWinner === 3)
-                                ? 'Finales (1-2 et 3-4)'
-                                : 'Demi-Finales'
-                              : roundMatches.length === 4
-                              ? 'Quarts de Finale'
-                              : roundMatches.length === 8
-                              ? '1/8 de Finale'
-                              : '1/16 de Finale'
-                            : `Tour de Classement ${roundNum}`}
-                        </span>
+                        {activeTab === 'main' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setClassificationSourceRound(roundNum);
+                              setActiveTab('consolante');
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-emerald-800 hover:text-emerald-950 hover:underline"
+                            title={`Voir le tableau de classement lié au tour ${roundTitle}`}
+                          >
+                            {roundTitle}
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                            {roundTitle}
+                          </span>
+                        )}
                         <span className="text-[11px] text-slate-500 block font-mono">
                           {roundMatches.length} match(s)
                         </span>
