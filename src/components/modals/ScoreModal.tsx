@@ -61,10 +61,10 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
   const [isRetired, setIsRetired] = useState<boolean>(match.score?.isRetired || false);
 
   const pair1Label = pair1
-    ? `${pair1.player1.lastName} / ${pair1.player2.lastName}`
+    ? `${pair1.player1.firstName} ${pair1.player1.lastName} / ${pair1.player2.firstName} ${pair1.player2.lastName}`
     : match.pair1Placeholder || 'Équipe 1';
   const pair2Label = pair2
-    ? `${pair2.player1.lastName} / ${pair2.player2.lastName}`
+    ? `${pair2.player1.firstName} ${pair2.player1.lastName} / ${pair2.player2.firstName} ${pair2.player2.lastName}`
     : match.pair2Placeholder || 'Équipe 2';
 
   // Automatically update winner whenever sets change

@@ -482,7 +482,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
         if (current.start < previous.start + previous.duration) {
           const pair = pairsMap.get(pairId);
           const pairName = pair
-            ? `${pair.player1.lastName}/${pair.player2.lastName}`
+            ? `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName}`
             : 'Équipe';
           warnings.push(`Chevauchement impossible : ${pairName} est programmée sur plusieurs terrains à la fois.`);
         }
@@ -961,13 +961,13 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                           <div className="font-semibold text-slate-900 space-y-0.5">
                             <p className="truncate">
                               {p1
-                                ? `${p1.player1.lastName} / ${p1.player2.lastName}`
+                                ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}`
                                 : match.pair1Placeholder}
                             </p>
                             <p className="truncate text-slate-500">
                               vs{' '}
                               {p2
-                                ? `${p2.player1.lastName} / ${p2.player2.lastName}`
+                                ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}`
                                 : match.pair2Placeholder}
                             </p>
                           </div>
@@ -1090,7 +1090,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                   <div className="min-w-0">
                     <span className="font-semibold text-amber-900 block">Match actuellement sur ce créneau :</span>
                     <p className="text-slate-800 text-xs truncate">
-                      {occupying.roundName} ({occP1 ? `${occP1.player1.lastName}/${occP1.player2.lastName}` : occupying.pair1Placeholder} vs {occP2 ? `${occP2.player1.lastName}/${occP2.player2.lastName}` : occupying.pair2Placeholder})
+                      {occupying.roundName} ({occP1 ? `${occP1.player1.firstName} ${occP1.player1.lastName} / ${occP1.player2.firstName} ${occP1.player2.lastName}` : occupying.pair1Placeholder} vs {occP2 ? `${occP2.player1.firstName} ${occP2.player1.lastName} / ${occP2.player2.firstName} ${occP2.player2.lastName}` : occupying.pair2Placeholder})
                     </p>
                   </div>
                   <button
@@ -1124,8 +1124,8 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                       <span className="font-mono text-[10px]">Match #{m.matchNumber}</span>
                     </div>
                     <p className="font-medium text-slate-900 truncate">
-                      {p1 ? `${p1.player1.lastName} / ${p1.player2.lastName}` : m.pair1Placeholder} vs{' '}
-                      {p2 ? `${p2.player1.lastName} / ${p2.player2.lastName}` : m.pair2Placeholder}
+                      {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : m.pair1Placeholder} vs{' '}
+                      {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : m.pair2Placeholder}
                     </p>
                     {m.scheduledTime && (
                       <p className="text-[10px] text-amber-700 font-medium">

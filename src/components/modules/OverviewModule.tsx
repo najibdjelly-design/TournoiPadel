@@ -231,8 +231,8 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({
                 {activeMatch ? (
                   <div className="space-y-1.5">
                     <p className="text-xs font-medium text-slate-800 truncate">
-                      {p1 ? `${p1.player1.lastName}/${p1.player2.lastName}` : activeMatch.pair1Placeholder} vs{' '}
-                      {p2 ? `${p2.player1.lastName}/${p2.player2.lastName}` : activeMatch.pair2Placeholder}
+                      {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : activeMatch.pair1Placeholder} vs{' '}
+                      {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : activeMatch.pair2Placeholder}
                     </p>
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-mono text-emerald-700 font-bold tabular-nums">
@@ -373,13 +373,13 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({
                         <div className={`flex items-center gap-1.5 ${winnerIs1 ? 'font-bold text-slate-900' : 'text-slate-500'}`}>
                           {winnerIs1 && <Trophy className="w-3 h-3 text-emerald-600 shrink-0" />}
                           <span className="truncate">
-                            {p1 ? `${p1.player1.lastName} / ${p1.player2.lastName}` : m.pair1Placeholder}
+                            {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : m.pair1Placeholder}
                           </span>
                         </div>
                         <div className={`flex items-center gap-1.5 ${winnerIs2 ? 'font-bold text-slate-900' : 'text-slate-500'}`}>
                           {winnerIs2 && <Trophy className="w-3 h-3 text-emerald-600 shrink-0" />}
                           <span className="truncate">
-                            {p2 ? `${p2.player1.lastName} / ${p2.player2.lastName}` : m.pair2Placeholder}
+                            {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : m.pair2Placeholder}
                           </span>
                         </div>
                       </div>

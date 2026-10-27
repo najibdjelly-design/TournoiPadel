@@ -336,7 +336,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                           </td>
                           <td className="py-2 px-3">
                             <span className="font-semibold text-slate-900">
-                              {p.player1.lastName} {p.player1.firstName}
+                              {p.player1.firstName} {p.player1.lastName}
                             </span>
                             <span className="block text-[10px] text-emerald-700 font-mono font-medium">
                               Rang : N° {p.player1.ranking} · Lic: {p.player1.licenseNumber}
@@ -347,7 +347,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                           </td>
                           <td className="py-2 px-3">
                             <span className="font-semibold text-slate-900">
-                              {p.player2.lastName} {p.player2.firstName}
+                              {p.player2.firstName} {p.player2.lastName}
                             </span>
                             <span className="block text-[10px] text-emerald-700 font-mono font-medium">
                               Rang : N° {p.player2.ranking} · Lic: {p.player2.licenseNumber}

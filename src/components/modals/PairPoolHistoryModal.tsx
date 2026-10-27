@@ -88,7 +88,7 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
                 )}
               </div>
               <h3 className="text-base font-bold text-slate-900">
-                {pair.player1.lastName} {pair.player1.firstName} / {pair.player2.lastName} {pair.player2.firstName}
+                {pair.player1.firstName} {pair.player1.lastName} / {pair.player2.firstName} {pair.player2.lastName}
               </h3>
             </div>
           </div>
@@ -263,7 +263,7 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
                       <div className="flex items-center justify-between gap-4 text-xs">
                         <div className="min-w-0">
                           <p className="font-semibold text-slate-900 truncate">
-                            vs {opponent ? `${opponent.player1.lastName} / ${opponent.player2.lastName}` : opponentPlaceholder || 'Adversaire inconnu'}
+                            vs {opponent ? `${opponent.player1.firstName} ${opponent.player1.lastName} / ${opponent.player2.firstName} ${opponent.player2.lastName}` : opponentPlaceholder || 'Adversaire inconnu'}
                           </p>
                           {opponent && (
                             <p className="text-[11px] text-slate-500">

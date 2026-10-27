@@ -485,7 +485,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     const lines = officialStandings.map((item) => {
       const pair = item.pairId ? pairsMap.get(item.pairId) : undefined;
       const pairName = pair
-        ? `${pair.player1.lastName} ${pair.player1.firstName} / ${pair.player2.lastName} ${pair.player2.firstName} (${pair.player1.club})`
+        ? `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName} (${pair.player1.club})`
         : item.detail;
       return `${item.rank}e : ${pairName}`;
     });
@@ -761,7 +761,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     {pair ? (
                       <div>
                         <h4 className="text-base font-extrabold text-slate-900">
-                          {pair.player1.lastName} {pair.player1.firstName} & {pair.player2.lastName} {pair.player2.firstName}
+                          {pair.player1.firstName} {pair.player1.lastName} & {pair.player2.firstName} {pair.player2.lastName}
                         </h4>
                         <p className="text-xs text-slate-600 mt-0.5 font-medium">
                           {pair.player1.club} · Poids #{pair.totalWeight} {pair.seedRank ? `· TS ${pair.seedRank}` : ''}
@@ -794,7 +794,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     {pair ? (
                       <div>
                         <h4 className="text-base font-extrabold text-slate-900">
-                          {pair.player1.lastName} {pair.player1.firstName} & {pair.player2.lastName} {pair.player2.firstName}
+                          {pair.player1.firstName} {pair.player1.lastName} & {pair.player2.firstName} {pair.player2.lastName}
                         </h4>
                         <p className="text-xs text-slate-600 mt-0.5 font-medium">
                           {pair.player1.club} · Poids #{pair.totalWeight}
@@ -827,7 +827,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     {pair ? (
                       <div>
                         <h4 className="text-base font-extrabold text-slate-900">
-                          {pair.player1.lastName} {pair.player1.firstName} & {pair.player2.lastName} {pair.player2.firstName}
+                          {pair.player1.firstName} {pair.player1.lastName} & {pair.player2.firstName} {pair.player2.lastName}
                         </h4>
                         <p className="text-xs text-slate-600 mt-0.5 font-medium">
                           {pair.player1.club} · Poids #{pair.totalWeight}
@@ -886,7 +886,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                           {pair ? (
                             <div className="flex items-center gap-2">
                               <span>
-                                {pair.player1.lastName} {pair.player1.firstName} & {pair.player2.lastName} {pair.player2.firstName}
+                                {pair.player1.firstName} {pair.player1.lastName} & {pair.player2.firstName} {pair.player2.lastName}
                               </span>
                             </div>
                           ) : (
@@ -1290,7 +1290,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                 </span>
                               )}
                               <span>
-                                {pair.player1.lastName} {pair.player1.firstName} & {pair.player2.lastName} {pair.player2.firstName}
+                                {pair.player1.firstName} {pair.player1.lastName} & {pair.player2.firstName} {pair.player2.lastName}
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-500 mt-0.5">

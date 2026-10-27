@@ -252,7 +252,9 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
   // Safe delete with confirmation
   const removePair = (pairId: string) => {
     const target = tournament.pairs.find(p => p.id === pairId);
-    const names = target ? `${target.player1.lastName} / ${target.player2.lastName}` : 'cette paire';
+    const names = target
+      ? `${target.player1.firstName} ${target.player1.lastName} / ${target.player2.firstName} ${target.player2.lastName}`
+      : 'cette paire';
     if (!window.confirm(`Êtes-vous sûr de vouloir supprimer l'inscription de ${names} ? Cette action est irréversible.`)) {
       return;
     }

@@ -989,7 +989,7 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
                     >
                       <div>
                         <p className="font-bold text-slate-900">
-                          {pair.player1.lastName} {pair.player1.firstName} & {pair.player2.lastName} {pair.player2.firstName}
+                          {pair.player1.firstName} {pair.player1.lastName} & {pair.player2.firstName} {pair.player2.lastName}
                         </p>
                         <p className="text-[11px] text-slate-500">
                           {pair.player1.club} · Poids #{pair.totalWeight}

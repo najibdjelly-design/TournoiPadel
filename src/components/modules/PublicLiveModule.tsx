@@ -99,9 +99,13 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
         const p2 = m.pair2Id ? pairsMap.get(m.pair2Id) : undefined;
         const q = searchPlayer.toLowerCase();
         return (
+          p1?.player1.firstName.toLowerCase().includes(q) ||
           p1?.player1.lastName.toLowerCase().includes(q) ||
+          p1?.player2.firstName.toLowerCase().includes(q) ||
           p1?.player2.lastName.toLowerCase().includes(q) ||
+          p2?.player1.firstName.toLowerCase().includes(q) ||
           p2?.player1.lastName.toLowerCase().includes(q) ||
+          p2?.player2.firstName.toLowerCase().includes(q) ||
           p2?.player2.lastName.toLowerCase().includes(q)
         );
       })
@@ -188,14 +192,14 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                       onClick={() => p1 && setSelectedPairHistory(p1)}
                       className={p1 ? 'hover:text-emerald-700 hover:underline cursor-pointer' : ''}
                     >
-                      {p1 ? `${p1.player1.lastName}/${p1.player2.lastName}` : m.pair1Placeholder}
+                      {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : m.pair1Placeholder}
                     </span>{' '}
                     vs{' '}
                     <span
                       onClick={() => p2 && setSelectedPairHistory(p2)}
                       className={p2 ? 'hover:text-emerald-700 hover:underline cursor-pointer' : ''}
                     >
-                      {p2 ? `${p2.player1.lastName}/${p2.player2.lastName}` : m.pair2Placeholder}
+                      {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : m.pair2Placeholder}
                     </span>
                   </p>
                   {m.score && (
@@ -305,7 +309,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                         onClick={() => p1 && setSelectedPairHistory(p1)}
                         className={`font-bold text-slate-900 truncate ${p1 ? 'hover:text-emerald-700 hover:underline cursor-pointer' : ''}`}
                       >
-                        {p1 ? `${p1.player1.lastName} / ${p1.player2.lastName}` : activeMatch.pair1Placeholder}
+                        {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : activeMatch.pair1Placeholder}
                       </span>
                     </div>
 
@@ -315,7 +319,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                         onClick={() => p2 && setSelectedPairHistory(p2)}
                         className={`font-bold text-slate-900 truncate ${p2 ? 'hover:text-emerald-700 hover:underline cursor-pointer' : ''}`}
                       >
-                        {p2 ? `${p2.player1.lastName} / ${p2.player2.lastName}` : activeMatch.pair2Placeholder}
+                        {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : activeMatch.pair2Placeholder}
                       </span>
                     </div>
 
@@ -466,7 +470,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                       title={p1 ? "Cliquer pour voir l'historique" : undefined}
                                     >
                                       {p1
-                                        ? `${p1.player1.lastName} / ${p1.player2.lastName}`
+                                        ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}`
                                         : match.pair1Placeholder}
                                     </p>
                                     <p
@@ -480,7 +484,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                     >
                                       vs{' '}
                                       {p2
-                                        ? `${p2.player1.lastName} / ${p2.player2.lastName}`
+                                        ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}`
                                         : match.pair2Placeholder}
                                     </p>
                                   </div>
@@ -533,14 +537,14 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                               onClick={() => p1 && setSelectedPairHistory(p1)}
                               className={p1 ? 'hover:text-emerald-700 hover:underline cursor-pointer' : ''}
                             >
-                              {p1 ? `${p1.player1.lastName} / ${p1.player2.lastName}` : m.pair1Placeholder}
+                              {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : m.pair1Placeholder}
                             </span>{' '}
                             vs{' '}
                             <span
                               onClick={() => p2 && setSelectedPairHistory(p2)}
                               className={p2 ? 'hover:text-emerald-700 hover:underline cursor-pointer' : ''}
                             >
-                              {p2 ? `${p2.player1.lastName} / ${p2.player2.lastName}` : m.pair2Placeholder}
+                              {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : m.pair2Placeholder}
                             </span>
                           </div>
                         </div>
@@ -610,7 +614,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                           <div className="flex items-center gap-1.5 group">
                             <span className="group-hover:text-emerald-700 group-hover:underline">
                               {pair
-                                ? `${pair.player1.lastName} / ${pair.player2.lastName}`
+                                ? `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName}`
                                 : 'Paire'}
                             </span>
                             <History className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100 group-hover:text-emerald-700" />
@@ -730,7 +734,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                           <td className="py-3 px-4 font-bold text-slate-900">
                             {pair ? (
                               <span>
-                                {pair.player1.lastName} {pair.player1.firstName} & {pair.player2.lastName} {pair.player2.firstName}
+                                {pair.player1.firstName} {pair.player1.lastName} & {pair.player2.firstName} {pair.player2.lastName}
                               </span>
                             ) : (
                               <span className="text-slate-400 italic">En attente de résultat</span>
@@ -818,7 +822,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                 title={p1 ? "Cliquer pour voir l'historique" : undefined}
                               >
                                 <span className="truncate">
-                                  {p1 ? `${p1.player1.lastName} / ${p1.player2.lastName}` : m.pair1Placeholder || 'Position 1'}
+                                  {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : m.pair1Placeholder || 'Position 1'}
                                 </span>
                                 {m.winnerPairId === m.pair1Id && (
                                   <Trophy className="w-3.5 h-3.5 text-emerald-600 shrink-0 ml-1" />
@@ -836,7 +840,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                 title={p2 ? "Cliquer pour voir l'historique" : undefined}
                               >
                                 <span className="truncate">
-                                  {p2 ? `${p2.player1.lastName} / ${p2.player2.lastName}` : m.pair2Placeholder || 'Position 2'}
+                                  {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : m.pair2Placeholder || 'Position 2'}
                                 </span>
                                 {m.winnerPairId === m.pair2Id && (
                                   <Trophy className="w-3.5 h-3.5 text-emerald-600 shrink-0 ml-1" />
