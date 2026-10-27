@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pair, Pool, Match } from '../../types/tournament';
+import { Court, Pair, Player, Pool, Match } from '../../types/tournament';
 import { formatScore } from '../../utils/padelCalculations';
 import {
   Trophy,
@@ -16,7 +16,10 @@ import {
 interface PairPoolHistoryModalProps {
   isOpen: boolean;
   pair: Pair | null;
+  selectedPlayer?: Player;
   pool?: Pool;
+  pools?: Pool[];
+  courts?: Court[];
   allMatches: Match[];
   allPairs: Pair[];
   onClose: () => void;
@@ -26,7 +29,10 @@ interface PairPoolHistoryModalProps {
 export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
   isOpen,
   pair,
+  selectedPlayer,
   pool,
+  pools = [],
+  courts = [],
   allMatches,
   allPairs,
   onClose,
@@ -35,11 +41,23 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
   if (!isOpen || !pair) return null;
 
   const pairsMap = new Map<string, Pair>(allPairs.map(p => [p.id, p]));
+  const courtsMap = new Map<string, string>(courts.map(court => [court.id, court.name]));
 
   // Matches involving this pair in this pool or overall
   const relevantMatches = allMatches.filter(
     m => m.pair1Id === pair.id || m.pair2Id === pair.id
   );
+  const nextMatch = relevantMatches
+    .filter(match => match.status !== 'completed' && match.status !== 'walkover')
+    .sort((a, b) => {
+      const aIsActive = a.status === 'in_progress' || a.status === 'warmup';
+      const bIsActive = b.status === 'in_progress' || b.status === 'warmup';
+      if (aIsActive !== bIsActive) return aIsActive ? -1 : 1;
+      if (!a.scheduledTime) return b.scheduledTime ? 1 : 0;
+      if (!b.scheduledTime) return -1;
+      return a.scheduledTime.localeCompare(b.scheduledTime, undefined, { numeric: true });
+    })[0];
+  const pairPools = pools.filter(candidate => candidate.pairIds.includes(pair.id));
 
   // Pool standing for this pair if pool is provided
   const standing = pool?.standings.find(s => s.pairId === pair.id);
@@ -54,9 +72,14 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
               <Trophy className="w-5 h-5" />
             </div>
             <div>
+              {selectedPlayer && (
+                <span className="text-xs font-medium text-slate-500 block">
+                  Fiche joueur · {selectedPlayer.firstName} {selectedPlayer.lastName}
+                </span>
+              )}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-                  {pool ? pool.name : 'Historique des Matchs'}
+                  {pool?.name || pairPools.map(candidate => candidate.name).join(' · ') || 'Historique des Matchs'}
                 </span>
                 {pair.seedRank && (
                   <span className="text-[10px] font-mono px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded font-bold border border-amber-200">
@@ -80,6 +103,57 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5">
+          {selectedPlayer && (
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-600">
+                Informations joueur
+              </h4>
+              <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                <div><span className="text-slate-500">Club :</span> <strong className="text-slate-800">{selectedPlayer.club || '—'}</strong></div>
+                <div><span className="text-slate-500">Licence :</span> <strong className="font-mono text-slate-800">{selectedPlayer.licenseNumber || '—'}</strong></div>
+                <div><span className="text-slate-500">Classement :</span> <strong className="text-slate-800">{selectedPlayer.ranking}</strong></div>
+                <div><span className="text-slate-500">Téléphone :</span> <strong className="text-slate-800">{selectedPlayer.phone || '—'}</strong></div>
+                <div><span className="text-slate-500">Présence :</span> <strong className="text-slate-800">{selectedPlayer.isPresent ? 'Émargé(e)' : 'Non émargé(e)'}</strong></div>
+                <div><span className="text-slate-500">Règlement :</span> <strong className="text-slate-800">
+                  {selectedPlayer.paymentStatus === 'paid' ? `Réglé (${selectedPlayer.paidAmount} €)` : selectedPlayer.paymentStatus === 'waived' ? 'Offert' : 'À régler'}
+                </strong></div>
+                {selectedPlayer.email && (
+                  <div className="sm:col-span-2"><span className="text-slate-500">E-mail :</span> <strong className="text-slate-800">{selectedPlayer.email}</strong></div>
+                )}
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+              Paire et prochaine rencontre
+            </h4>
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-700">
+              <span>Partenaire : <strong>{selectedPlayer?.id === pair.player1.id
+                ? `${pair.player2.firstName} ${pair.player2.lastName}`
+                : selectedPlayer?.id === pair.player2.id
+                  ? `${pair.player1.firstName} ${pair.player1.lastName}`
+                  : `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName}`}</strong></span>
+              <span>Poids de paire : <strong>#{pair.totalWeight}</strong></span>
+              {pair.seedRank && <span>Tête de série : <strong>TS {pair.seedRank}</strong></span>}
+              {pairPools.length > 0 && (
+                <span>Poule : <strong>{pairPools.map(candidate => candidate.name).join(', ')}</strong></span>
+              )}
+            </div>
+            {nextMatch ? (
+              <div className="mt-3 border-t border-emerald-200 pt-3 text-xs text-slate-700">
+                <strong>{nextMatch.roundName}</strong>
+                <span> · {nextMatch.status === 'in_progress' ? 'En cours' : nextMatch.status === 'warmup' ? 'Échauffement' : 'À venir'}</span>
+                {nextMatch.scheduledTime && <span> · {nextMatch.scheduledTime}</span>}
+                <span> · {nextMatch.courtId ? courtsMap.get(nextMatch.courtId) || 'Terrain non renseigné' : 'Terrain à définir'}</span>
+              </div>
+            ) : (
+              <p className="mt-3 border-t border-emerald-200 pt-3 text-xs text-slate-500">
+                Aucun prochain match programmé.
+              </p>
+            )}
+          </section>
+
           {/* Standing summary card if pool */}
           {standing && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-center">
@@ -189,6 +263,11 @@ export const PairPoolHistoryModal: React.FC<PairPoolHistoryModalProps> = ({
                           {opponent && (
                             <p className="text-[11px] text-slate-500">
                               {opponent.player1.club} · Poids #{opponent.totalWeight}
+                            </p>
+                          )}
+                          {(m.courtId || m.scheduledTime) && (
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              {m.courtId ? courtsMap.get(m.courtId) || 'Terrain non renseigné' : 'Terrain à définir'}
                             </p>
                           )}
                         </div>

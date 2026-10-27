@@ -10,6 +10,7 @@ import {
   DollarSign,
   UserCheck,
 } from 'lucide-react';
+import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
 
 interface CaisseModuleProps {
   tournament: Tournament;
@@ -23,6 +24,8 @@ export const CaisseModule: React.FC<CaisseModuleProps> = ({
   const [search, setSearch] = useState('');
   const [filterPresence, setFilterPresence] = useState<'all' | 'present' | 'missing'>('all');
   const [filterPayment, setFilterPayment] = useState<'all' | 'paid' | 'pending'>('all');
+  const [selectedPairId, setSelectedPairId] = useState<string | null>(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
 
   // Extract all individual players with pair reference
   const playerRows: { player: Player; pair: Pair; isP1: boolean }[] = [];
@@ -30,6 +33,25 @@ export const CaisseModule: React.FC<CaisseModuleProps> = ({
     playerRows.push({ player: pair.player1, pair, isP1: true });
     playerRows.push({ player: pair.player2, pair, isP1: false });
   });
+  const allMatches = [
+    ...tournament.pools.flatMap(pool => pool.matches),
+    ...tournament.bracketMatches,
+    ...tournament.consolanteMatches,
+  ];
+  const selectedPair = tournament.pairs.find(pair => pair.id === selectedPairId) || null;
+  const selectedPlayer = selectedPair
+    ? [selectedPair.player1, selectedPair.player2].find(player => player.id === selectedPlayerId)
+    : undefined;
+
+  const openPlayerDetails = (pair: Pair, player: Player) => {
+    setSelectedPairId(pair.id);
+    setSelectedPlayerId(player.id);
+  };
+
+  const closePlayerDetails = () => {
+    setSelectedPairId(null);
+    setSelectedPlayerId(null);
+  };
 
   // Calculate financial statistics
   const entryFee = tournament.entryFee;
@@ -325,7 +347,14 @@ export const CaisseModule: React.FC<CaisseModuleProps> = ({
                       {/* Player name & ranking */}
                       <td className="py-3 px-4">
                         <div className="font-semibold text-slate-900 flex items-center gap-1.5">
-                          <span>{player.firstName} {player.lastName}</span>
+                          <button
+                            type="button"
+                            onClick={() => openPlayerDetails(pair, player)}
+                            className="text-left text-emerald-800 hover:text-emerald-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+                            aria-label={`Afficher les informations de ${player.firstName} ${player.lastName}`}
+                          >
+                            {player.firstName} {player.lastName}
+                          </button>
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono mt-0.5">
                           N° {player.ranking} · {player.phone}
@@ -342,11 +371,19 @@ export const CaisseModule: React.FC<CaisseModuleProps> = ({
 
                       {/* Pair partner */}
                       <td className="py-3 px-4">
-                        <span className="text-slate-700">
-                          Associé à <strong>{partner.lastName}</strong> ({partner.firstName[0]}.)
-                        </span>
+                        <div className="text-slate-700">
+                          Associé à{' '}
+                          <button
+                            type="button"
+                            onClick={() => openPlayerDetails(pair, partner)}
+                            className="font-semibold text-emerald-800 hover:text-emerald-950 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+                            aria-label={`Afficher les informations de ${partner.firstName} ${partner.lastName}`}
+                          >
+                            {partner.firstName} {partner.lastName}
+                          </button>
+                        </div>
                         <div className="text-[11px] text-slate-400 font-mono">
-                          Poids paire: #{pair.totalWeight}
+                          Poids paire: #{pair.totalWeight}{pair.seedRank ? ` · TS ${pair.seedRank}` : ''}
                         </div>
                       </td>
 
@@ -407,6 +444,17 @@ export const CaisseModule: React.FC<CaisseModuleProps> = ({
           </table>
         </div>
       </div>
+
+      <PairPoolHistoryModal
+        isOpen={Boolean(selectedPair)}
+        pair={selectedPair}
+        selectedPlayer={selectedPlayer}
+        pools={tournament.pools}
+        courts={tournament.courts}
+        allMatches={allMatches}
+        allPairs={tournament.pairs}
+        onClose={closePlayerDetails}
+      />
     </div>
   );
 };
