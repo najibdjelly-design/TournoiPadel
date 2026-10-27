@@ -49,9 +49,7 @@ export function resolveBracketByes(
       const winnerPairId = pair1IsBye
         ? (pair2IsBye ? undefined : match.pair2Id)
         : match.pair1Id;
-      if (!pair1IsBye || !pair2IsBye) {
-        if (!winnerPairId) continue;
-      }
+      if ((!pair1IsBye || !pair2IsBye) && !winnerPairId) continue;
 
       const resolved: Match = {
         ...match,
@@ -82,7 +80,7 @@ function hasParticipant(pairId?: string, placeholder?: string): boolean {
   const label = placeholder?.trim();
   return Boolean(
     pairId ||
-    (label && !/(exempt|bye)/i.test(label) && !/^qualifi[eé]\s*\/\s*rang\b/i.test(label))
+    (label && !/(exempt|bye)/i.test(label))
   );
 }
 
@@ -215,23 +213,62 @@ export function createConflictFreeSchedule(
     ...bracketMatches,
     ...consolanteMatches,
   ];
+  const mutableMatches = new Map(allMatches.map(match => [match.id, { ...match }]));
+  const incoming = new Map<string, { sourceId: string; outcome: 'winner' | 'loser' }>();
+  for (const match of allMatches) {
+    if (match.nextMatchId && match.nextMatchSlot) {
+      incoming.set(`${match.nextMatchId}:${match.nextMatchSlot}`, {
+        sourceId: match.id,
+        outcome: 'winner',
+      });
+    }
+    if (match.loserNextMatchId && match.loserNextMatchSlot) {
+      incoming.set(`${match.loserNextMatchId}:${match.loserNextMatchSlot}`, {
+        sourceId: match.id,
+        outcome: 'loser',
+      });
+    }
+  }
+
   const pairAvailableAt = new Map<string, number>();
+  const participantBySlot = new Map<string, string>();
+  const participantAvailableAt = new Map<string, number>();
   const courtAvailableAt = new Map(courts.map(court => [court.id, scheduleStart.getTime()]));
   const startMs = scheduleStart.getTime();
   const nowMs = options.currentTime?.getTime();
+  const slotKey = (matchId: string, slot: 'pair1' | 'pair2') => `${matchId}:${slot}`;
 
-  const setPairAvailability = (pairId: string | undefined, timestamp: number) => {
-    if (!pairId) return;
-    pairAvailableAt.set(pairId, Math.max(pairAvailableAt.get(pairId) ?? startMs, timestamp));
+  const setParticipant = (
+    matchId: string,
+    slot: 'pair1' | 'pair2',
+    participant: string,
+    availableAt: number
+  ) => {
+    const key = slotKey(matchId, slot);
+    participantBySlot.set(key, participant);
+    participantAvailableAt.set(
+      participant,
+      Math.max(participantAvailableAt.get(participant) ?? startMs, availableAt)
+    );
   };
 
   for (const match of allMatches) {
+    for (const slot of ['pair1', 'pair2'] as const) {
+      const pairId = match[`${slot}Id`];
+      const placeholder = match[`${slot}Placeholder`];
+      if (pairId) {
+        setParticipant(match.id, slot, `pair:${pairId}`, startMs);
+      } else if (placeholder && !/(exempt|bye)/i.test(placeholder) && !incoming.has(slotKey(match.id, slot))) {
+        setParticipant(match.id, slot, `placeholder:${match.id}:${slot}`, startMs);
+      }
+    }
+
     const duration = (match.durationMinutes ?? slotDuration) * 60_000;
     if (match.status === 'completed' || match.status === 'walkover') {
       const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
       const availableAt = Number.isFinite(completedAt) ? completedAt : startMs;
-      setPairAvailability(match.pair1Id, availableAt);
-      setPairAvailability(match.pair2Id, availableAt);
+      if (match.pair1Id) pairAvailableAt.set(match.pair1Id, Math.max(pairAvailableAt.get(match.pair1Id) ?? startMs, availableAt));
+      if (match.pair2Id) pairAvailableAt.set(match.pair2Id, Math.max(pairAvailableAt.get(match.pair2Id) ?? startMs, availableAt));
       continue;
     }
 
@@ -244,8 +281,8 @@ export function createConflictFreeSchedule(
         ? scheduledAt
         : (nowMs ?? startMs);
     const availableAt = Math.max(nowMs ?? start, start + duration);
-    setPairAvailability(match.pair1Id, availableAt);
-    setPairAvailability(match.pair2Id, availableAt);
+    if (match.pair1Id) pairAvailableAt.set(match.pair1Id, Math.max(pairAvailableAt.get(match.pair1Id) ?? startMs, availableAt));
+    if (match.pair2Id) pairAvailableAt.set(match.pair2Id, Math.max(pairAvailableAt.get(match.pair2Id) ?? startMs, availableAt));
     if (match.courtId && courtAvailableAt.has(match.courtId)) {
       courtAvailableAt.set(
         match.courtId,
@@ -258,9 +295,44 @@ export function createConflictFreeSchedule(
     match.status !== 'completed' &&
     match.status !== 'walkover' &&
     match.status !== 'in_progress' &&
-    match.status !== 'warmup' &&
-    isMatchPlayable(match)
+    match.status !== 'warmup'
   );
+
+  const propagateOutcome = (
+    source: Match,
+    outcome: 'winner' | 'loser',
+    targetId: string | undefined,
+    targetSlot: 'pair1' | 'pair2' | undefined,
+    availableAt: number,
+    simulated: boolean
+  ) => {
+    if (!targetId || !targetSlot) return;
+    const target = mutableMatches.get(targetId);
+    if (!target) return;
+    const pairId = outcome === 'winner'
+      ? source.winnerPairId
+      : source.winnerPairId
+        ? source.winnerPairId === source.pair1Id ? source.pair2Id : source.pair1Id
+        : undefined;
+    const participant = pairId
+      ? `pair:${pairId}`
+      : simulated
+        ? `${outcome}:${source.id}`
+        : undefined;
+    if (!participant) return;
+    setParticipant(target.id, targetSlot, participant, availableAt);
+    if (pairId) target[`${targetSlot}Id`] = pairId;
+  };
+
+  for (const match of allMatches) {
+    if (match.status !== 'completed' && match.status !== 'walkover') continue;
+    const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
+    const availableAt = Number.isFinite(completedAt) ? completedAt : startMs;
+    if (match.winnerPairId) {
+      propagateOutcome(match, 'winner', match.nextMatchId, match.nextMatchSlot, availableAt, false);
+      propagateOutcome(match, 'loser', match.loserNextMatchId, match.loserNextMatchSlot, availableAt, false);
+    }
+  }
 
   while (pending.length > 0) {
     let best: {
@@ -270,10 +342,15 @@ export function createConflictFreeSchedule(
     } | undefined;
 
     for (const match of pending) {
+      const pair1 = participantBySlot.get(slotKey(match.id, 'pair1'));
+      const pair2 = participantBySlot.get(slotKey(match.id, 'pair2'));
+      if (!pair1 || !pair2) continue;
       const pairReadyAt = Math.max(
         startMs,
-        pairAvailableAt.get(match.pair1Id!) ?? startMs,
-        pairAvailableAt.get(match.pair2Id!) ?? startMs
+        participantAvailableAt.get(pair1) ?? startMs,
+        participantAvailableAt.get(pair2) ?? startMs,
+        match.pair1Id ? pairAvailableAt.get(match.pair1Id) ?? startMs : startMs,
+        match.pair2Id ? pairAvailableAt.get(match.pair2Id) ?? startMs : startMs
       );
       for (const court of courts) {
         const startAt = Math.max(pairReadyAt, courtAvailableAt.get(court.id) ?? startMs);
@@ -297,8 +374,25 @@ export function createConflictFreeSchedule(
       scheduledAt: new Date(best.startAt).toISOString(),
     });
     courtAvailableAt.set(best.court.id, availableAt);
-    setPairAvailability(best.match.pair1Id, availableAt);
-    setPairAvailability(best.match.pair2Id, availableAt);
+    for (const pairId of [best.match.pair1Id, best.match.pair2Id]) {
+      if (pairId) pairAvailableAt.set(pairId, availableAt);
+    }
+    propagateOutcome(
+      best.match,
+      'winner',
+      best.match.nextMatchId,
+      best.match.nextMatchSlot,
+      availableAt,
+      true
+    );
+    propagateOutcome(
+      best.match,
+      'loser',
+      best.match.loserNextMatchId,
+      best.match.loserNextMatchSlot,
+      availableAt,
+      true
+    );
     pending.splice(pending.findIndex(match => match.id === best!.match.id), 1);
   }
 

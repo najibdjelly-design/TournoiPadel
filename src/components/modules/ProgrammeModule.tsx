@@ -7,6 +7,7 @@ import {
   createConflictFreeSchedule,
   isMatchPlayable,
   isMatchSchedulable,
+  resolveBracketByes,
 } from '../../utils/padelSchedule';
 import {
   CalendarDays,
@@ -95,11 +96,15 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
 
   // Hide consolation fixtures that do not have two playable participants.
   const visibleConsolanteMatches = useMemo(
-    () => compactedConsolante.consolanteMatches.filter(isMatchPlayable),
+    () => compactedConsolante.consolanteMatches.filter(
+      match => match.status !== 'walkover' && isMatchSchedulable(match)
+    ),
     [compactedConsolante.consolanteMatches]
   );
   const visibleBracketMatches = useMemo(
-    () => compactedConsolante.bracketMatches.filter(isMatchPlayable),
+    () => compactedConsolante.bracketMatches.filter(
+      match => match.status !== 'walkover' && isMatchSchedulable(match)
+    ),
     [compactedConsolante.bracketMatches]
   );
 
@@ -137,8 +142,8 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   // Matches not yet scheduled with time or court
   const schedulableProgrammeMatches = [
     ...tournament.pools.flatMap(pool => pool.matches).filter(isMatchSchedulable),
-    ...visibleBracketMatches.filter(isMatchPlayable),
-    ...visibleConsolanteMatches.filter(isMatchPlayable),
+    ...visibleBracketMatches.filter(isMatchSchedulable),
+    ...visibleConsolanteMatches.filter(isMatchSchedulable),
   ];
   const unscheduledMatches = schedulableProgrammeMatches.filter(m => !m.scheduledTime || !m.courtId);
 
@@ -493,17 +498,18 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       return;
     }
 
+    const resolvedByes = resolveBracketByes(
+      compactedConsolante.bracketMatches,
+      compactedConsolante.consolanteMatches
+    );
     const scheduledMatches = createConflictFreeSchedule(
       tournament.pools,
-      compactedConsolante.bracketMatches,
-      compactedConsolante.consolanteMatches,
+      resolvedByes.bracketMatches,
+      resolvedByes.consolanteMatches,
       tournament.courts,
       startTime,
       slotDuration,
-      {
-        scheduleDate: tournament.dates.start,
-        ...(tournament.status === 'in_progress' ? { currentTime: new Date() } : {}),
-      }
+      { scheduleDate: tournament.dates.start }
     );
 
     const updatedPools = tournament.pools.map(pool => ({
@@ -511,11 +517,11 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       matches: applyScheduleAssignments(pool.matches, scheduledMatches),
     }));
     const updatedBracket = applyScheduleAssignments(
-      compactedConsolante.bracketMatches,
+      resolvedByes.bracketMatches,
       scheduledMatches
     );
     const updatedConsolante = applyScheduleAssignments(
-      compactedConsolante.consolanteMatches,
+      resolvedByes.consolanteMatches,
       scheduledMatches
     );
 

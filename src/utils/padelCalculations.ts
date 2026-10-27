@@ -954,6 +954,16 @@ export function generateFullClassificationTournament(
         match.loserNextMatchId = undefined;
         match.loserNextMatchSlot = undefined;
       });
+      r2Main.forEach(match => {
+        match.loserNextMatchId = undefined;
+        match.loserNextMatchSlot = undefined;
+      });
+      for (let slot = 0; slot < 4; slot++) {
+        r1Main[slot].loserNextMatchId = c916Quarts[slot].id;
+        r1Main[slot].loserNextMatchSlot = 'pair1';
+        r2Main[slot].loserNextMatchId = c916Quarts[slot].id;
+        r2Main[slot].loserNextMatchSlot = 'pair2';
+      }
     }
 
     return { bracketMatches, consolanteMatches };
