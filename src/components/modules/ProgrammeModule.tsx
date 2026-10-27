@@ -8,6 +8,7 @@ import {
   isMatchPlayable,
   isMatchSchedulable,
   normalizeSixteenTeam24Draw,
+  rescheduleMatchesFromNow,
   resolveBracketByes,
 } from '../../utils/padelSchedule';
 import {
@@ -231,19 +232,20 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
 
   // Status changer for a match
   const handleSetMatchStatus = (matchId: string, status: MatchStatus) => {
+    const statusChangedAt = new Date();
     const updateMatchInArray = (arr: Match[]) =>
       arr.map(m => {
         if (m.id !== matchId) return m;
         if (status === 'in_progress' || status === 'warmup') {
-          return { ...m, status, startedAt: new Date().toISOString() };
+          return { ...m, status, startedAt: statusChangedAt.toISOString() };
         }
         if (status === 'completed') {
-          return { ...m, status, completedAt: new Date().toISOString() };
+          return { ...m, status, completedAt: statusChangedAt.toISOString() };
         }
         return { ...m, status };
       });
 
-    onUpdateTournament({
+    const updated = {
       ...tournament,
       pools: tournament.pools.map(p => ({
         ...p,
@@ -251,7 +253,29 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       })),
       bracketMatches: updateMatchInArray(tournament.bracketMatches),
       consolanteMatches: updateMatchInArray(tournament.consolanteMatches),
-    });
+    };
+
+    if (
+      tournament.courts.length > 0 &&
+      (status === 'in_progress' || status === 'warmup' || status === 'completed')
+    ) {
+      const rescheduled = rescheduleMatchesFromNow(
+        updated.pools,
+        updated.bracketMatches,
+        updated.consolanteMatches,
+        updated.courts,
+        startTime,
+        slotDuration,
+        {
+          scheduleDate: updated.dates.start,
+          currentTime: statusChangedAt,
+        }
+      );
+      onUpdateTournament({ ...updated, ...rescheduled });
+      return;
+    }
+
+    onUpdateTournament(updated);
   };
 
   const [editingCourtId, setEditingCourtId] = useState<string | null>(null);

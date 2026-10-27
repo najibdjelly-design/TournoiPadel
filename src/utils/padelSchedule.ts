@@ -642,3 +642,43 @@ export function applyScheduleAssignments(
     return match;
   });
 }
+
+export function rescheduleMatchesFromNow(
+  pools: Pool[],
+  bracketMatches: Match[],
+  consolanteMatches: Match[],
+  courts: Court[],
+  startTime: string,
+  slotDuration: number,
+  options: ScheduleOptions = {}
+): {
+  pools: Pool[];
+  bracketMatches: Match[];
+  consolanteMatches: Match[];
+} {
+  const requestedStart = options.currentTime ?? new Date();
+  const currentTime = new Date(requestedStart);
+  currentTime.setSeconds(0, 0);
+  if (currentTime.getTime() < requestedStart.getTime()) {
+    currentTime.setMinutes(currentTime.getMinutes() + 1);
+  }
+
+  const assignments = createConflictFreeSchedule(
+    pools,
+    bracketMatches,
+    consolanteMatches,
+    courts,
+    startTime,
+    slotDuration,
+    { ...options, currentTime }
+  );
+
+  return {
+    pools: pools.map(pool => ({
+      ...pool,
+      matches: applyScheduleAssignments(pool.matches, assignments, true),
+    })),
+    bracketMatches: applyScheduleAssignments(bracketMatches, assignments, true),
+    consolanteMatches: applyScheduleAssignments(consolanteMatches, assignments, true),
+  };
+}

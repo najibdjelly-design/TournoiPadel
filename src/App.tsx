@@ -26,6 +26,7 @@ import { TournamentsManagerModal } from './components/modals/TournamentsManagerM
 import { computePoolStandings } from './utils/padelCalculations';
 import {
   compactConsolanteLoserSlots,
+  rescheduleMatchesFromNow,
   resolveBracketByes,
 } from './utils/padelSchedule';
 
@@ -254,6 +255,7 @@ export default function App() {
     if (!activeTournament) return;
 
     let updated = { ...activeTournament };
+    const completedAt = new Date();
     const pairsMap = new Map<string, Pair>(updated.pairs.map(p => [p.id, p]));
 
     // Check in pools
@@ -268,7 +270,7 @@ export default function App() {
           score,
           winnerPairId,
           status: 'completed',
-          completedAt: new Date().toISOString(),
+          completedAt: completedAt.toISOString(),
         };
         const updatedPool = { ...pool, matches: matchesCopy };
         updatedPool.standings = computePoolStandings(updatedPool, pairsMap);
@@ -301,7 +303,7 @@ export default function App() {
                 score,
                 winnerPairId,
                 status: 'completed' as const,
-                completedAt: new Date().toISOString(),
+                completedAt: completedAt.toISOString(),
               };
             }
 
@@ -360,6 +362,22 @@ export default function App() {
     );
     updated.bracketMatches = resolvedByes.bracketMatches;
     updated.consolanteMatches = resolvedByes.consolanteMatches;
+
+    if (updated.courts.length > 0) {
+      const rescheduled = rescheduleMatchesFromNow(
+        updated.pools,
+        updated.bracketMatches,
+        updated.consolanteMatches,
+        updated.courts,
+        updated.firstMatchTime ?? '09:00',
+        updated.slotDurationMinutes ?? 75,
+        {
+          scheduleDate: updated.dates.start,
+          currentTime: completedAt,
+        }
+      );
+      updated = { ...updated, ...rescheduled };
+    }
 
     boltClient.saveTournament(updated);
   };
