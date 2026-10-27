@@ -1533,12 +1533,11 @@ export function generateFullClassificationTournament(
  */
 export function computeCompleteFinalStandings(tournament: Tournament): FinalStandingItem[] {
   const allMatches = [...tournament.bracketMatches, ...tournament.consolanteMatches];
-  const configuredMaxTeams =
-    tournament.bracketMatches.length >= 20 ? 24 : tournament.bracketMatches.length >= 10 ? 16 : 8;
   const confirmedTeams = tournament.pairs.filter(pair => pair.status === 'confirmed').length;
-  const maxTeams = confirmedTeams > 0
-    ? Math.min(configuredMaxTeams, confirmedTeams)
-    : configuredMaxTeams;
+  const configuredMaxTeams = tournament.bracketSize ??
+    (tournament.bracketMatches.length >= 20 ? 24 : tournament.bracketMatches.length >= 10 ? 16 : 8);
+  const maxTeams = tournament.bracketEntrantCount ??
+    (confirmedTeams > 0 ? Math.min(configuredMaxTeams, confirmedTeams) : configuredMaxTeams);
 
   const standings: FinalStandingItem[] = [];
 

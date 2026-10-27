@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Tournament, Match, Pair } from '../../types/tournament';
 import {
   generateFullClassificationTournament,
@@ -49,7 +49,13 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'main' | 'consolante' | 'standings'>('main');
   const [classificationSourceRound, setClassificationSourceRound] = useState<number | null>(null);
-  const [bracketSize, setBracketSize] = useState<4 | 8 | 16 | 24 | 32>(24); // Default 24 teams
+  const [bracketSize, setBracketSize] = useState<4 | 8 | 16 | 24 | 32>(
+    tournament.bracketSize ?? 24
+  );
+  const [entrantCount, setEntrantCount] = useState(
+    tournament.bracketEntrantCount ??
+      Math.min(16, tournament.pairs.filter((pair) => pair.status === 'confirmed').length || 16)
+  );
   const [consolanteCategory, setConsolanteCategory] = useState<'all' | '5-8' | '9-16' | '17-24'>('all');
   const [isCopiedStandings, setIsCopiedStandings] = useState(false);
 
@@ -66,7 +72,16 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   const [customPlaceholder, setCustomPlaceholder] = useState('');
   const [isClearTableauModalOpen, setIsClearTableauModalOpen] = useState(false);
 
+  useEffect(() => {
+    setBracketSize(tournament.bracketSize ?? 24);
+    setEntrantCount(
+      tournament.bracketEntrantCount ??
+        Math.min(16, tournament.pairs.filter((pair) => pair.status === 'confirmed').length || 16)
+    );
+  }, [tournament.id]);
+
   const pairsMap = new Map<string, Pair>(tournament.pairs.map((p) => [p.id, p]));
+  const confirmedPairsCount = tournament.pairs.filter((pair) => pair.status === 'confirmed').length;
   const compactedConsolanteMatches = useMemo(
     () =>
       compactConsolanteLoserSlots(
@@ -78,6 +93,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   // Detect current main bracket capacity from existing matches
   const mainBracketCapacity = useMemo<number>(() => {
+    if (tournament.bracketSize) return tournament.bracketSize;
     const r1Count = tournament.bracketMatches.filter(
       (m) => (m.bracketRound || 1) === 1
     ).length;
@@ -85,38 +101,117 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     if (r1Count >= 4) return 8;
     if (r1Count >= 2) return 4;
     return tournament.maxPairs || 24;
-  }, [tournament.bracketMatches, tournament.maxPairs]);
+  }, [tournament.bracketMatches, tournament.bracketSize, tournament.maxPairs]);
 
   // Generate full tournament with automatic matching classification matches (1 to N)
   const handleGenerateFullTournament = (size: 4 | 8 | 16 | 24 | 32 = bracketSize) => {
+    const configuredEntrants = Math.min(entrantCount, size);
     const confirmed = tournament.pairs.filter((p) => p.status === 'confirmed');
-    const sortedPairs = [...confirmed].sort((a, b) => a.totalWeight - b.totalWeight);
+    if (configuredEntrants < 1 || confirmed.length < configuredEntrants) {
+      window.alert(`Il faut ${configuredEntrants} paires confirmées pour générer ce tableau.`);
+      return;
+    }
+    const sortedPairs = [...confirmed]
+      .sort((a, b) => a.totalWeight - b.totalWeight)
+      .slice(0, configuredEntrants)
+      .map((pair, index) => ({ ...pair, seedRank: index + 1 }));
+    const rankedPairsById = new Map(sortedPairs.map((pair) => [pair.id, pair]));
     const { bracketMatches: generatedMainMatches, consolanteMatches: generatedConsolanteMatches } =
-      generateFullClassificationTournament(tournament.id, size, confirmed.length);
+      generateFullClassificationTournament(tournament.id, size, configuredEntrants);
     let newMainMatches = generatedMainMatches;
     let newConsolanteMatches = generatedConsolanteMatches;
 
-    if (size === 24) {
-      const entrants = sortedPairs.slice(0, size);
-      const directEntries = entrants.slice(0, 8);
-      const firstRoundEntries = entrants.slice(8);
+    if (size === 24 && configuredEntrants === 16) {
       const r1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
       const r2Matches = newMainMatches.filter((m) => m.bracketRound === 2);
+      const quarterFinals = newMainMatches.filter((m) => m.bracketRound === 3);
+      const classificationQuarters = newConsolanteMatches
+        .filter((match) => match.classificationRankRange === '9-16')
+        .sort((a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0));
+      const activeR2Indexes = [0, 2, 4, 6];
+      const firstRoundSeedOrder = buildSeedOrder(8);
+      const eighthFinalSeedOrder = [1, 4, 2, 3];
+      const quarterFinalSeedOrder = [2, 4, 3, 1];
 
       r1Matches.forEach((match, index) => {
-        const firstEntry = firstRoundEntries[index * 2];
-        const secondEntry = firstRoundEntries[index * 2 + 1];
-        match.pair1Id = firstEntry?.id;
-        match.pair2Id = secondEntry?.id;
-        match.pair1Placeholder = firstEntry ? undefined : 'Bye';
-        match.pair2Placeholder = secondEntry ? undefined : 'Bye';
+        match.nextMatchId = undefined;
+        match.nextMatchSlot = undefined;
+        match.loserNextMatchId = undefined;
+        match.loserNextMatchSlot = undefined;
+        if (index < 4) {
+          const firstEntry = sortedPairs[8 + firstRoundSeedOrder[index * 2] - 1];
+          const secondEntry = sortedPairs[8 + firstRoundSeedOrder[index * 2 + 1] - 1];
+          match.pair1Id = firstEntry?.id;
+          match.pair2Id = secondEntry?.id;
+          match.pair1Placeholder = undefined;
+          match.pair2Placeholder = undefined;
+          match.nextMatchId = r2Matches[activeR2Indexes[index]].id;
+          match.nextMatchSlot = 'pair2';
+          if (classificationQuarters[index]) {
+            match.loserNextMatchId = classificationQuarters[index].id;
+            match.loserNextMatchSlot = 'pair1';
+          }
+        } else if (size === 24) {
+          const directEntries = sortedPairs.slice(0, 8);
+          const firstRoundEntries = sortedPairs.slice(8);
+          const r1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
+          const r2Matches = newMainMatches.filter((m) => m.bracketRound === 2);
+
+          r1Matches.forEach((match, index) => {
+            const firstEntry = firstRoundEntries[index * 2];
+            const secondEntry = firstRoundEntries[index * 2 + 1];
+            match.pair1Id = firstEntry?.id;
+            match.pair2Id = secondEntry?.id;
+            match.pair1Placeholder = firstEntry ? undefined : 'Bye';
+            match.pair2Placeholder = secondEntry ? undefined : 'Bye';
+          });
+
+          r2Matches.forEach((match, index) => {
+            const seedRank = buildSeedOrder(8)[index];
+            const directEntry = directEntries[seedRank - 1];
+            match.pair1Id = directEntry?.id;
+            if (!directEntry) match.pair1Placeholder = 'Bye';
+          });
+        } else {
+          match.pair1Id = undefined;
+          match.pair2Id = undefined;
+          match.pair1Placeholder = 'Bye';
+          match.pair2Placeholder = 'Bye';
+        }
       });
 
       r2Matches.forEach((match, index) => {
-        const seedRank = buildSeedOrder(8)[index];
-        const directEntry = directEntries[seedRank - 1];
+        match.nextMatchId = undefined;
+        match.nextMatchSlot = undefined;
+        match.loserNextMatchId = undefined;
+        match.loserNextMatchSlot = undefined;
+        const activeIndex = activeR2Indexes.indexOf(index);
+        if (activeIndex >= 0) {
+          const directEntry = sortedPairs[4 + eighthFinalSeedOrder[activeIndex] - 1];
+          match.pair1Id = directEntry?.id;
+          match.pair1Placeholder = undefined;
+          match.pair2Id = undefined;
+          match.pair2Placeholder = `Vainqueur 1/16e #${activeIndex + 1}`;
+          match.nextMatchId = quarterFinals[activeIndex].id;
+          match.nextMatchSlot = 'pair2';
+          if (classificationQuarters[activeIndex]) {
+            match.loserNextMatchId = classificationQuarters[activeIndex].id;
+            match.loserNextMatchSlot = 'pair2';
+          }
+        } else {
+          match.pair1Id = undefined;
+          match.pair2Id = undefined;
+          match.pair1Placeholder = 'Bye';
+          match.pair2Placeholder = 'Bye';
+        }
+      });
+
+      quarterFinals.forEach((match, index) => {
+        const directEntry = sortedPairs[quarterFinalSeedOrder[index] - 1];
         match.pair1Id = directEntry?.id;
-        if (!directEntry) match.pair1Placeholder = 'Bye';
+        match.pair1Placeholder = undefined;
+        match.pair2Id = undefined;
+        match.pair2Placeholder = `Vainqueur 1/8e #${index + 1}`;
       });
     } else {
       const round1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
@@ -134,9 +229,60 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     const resolvedByes = resolveBracketByes(newMainMatches, newConsolanteMatches);
     newMainMatches = resolvedByes.bracketMatches;
     newConsolanteMatches = resolvedByes.consolanteMatches;
+    if (size !== 24 || configuredEntrants !== 16) {
+      const trimClassificationRange = (match: Match): Match | undefined => {
+        const ranks = [match.targetRankWinner, match.targetRankLoser].filter(
+          (rank): rank is number => rank !== undefined
+        );
+        if (!ranks.every((rank) => rank <= configuredEntrants)) return undefined;
+        if (!match.classificationRankRange) return match;
+
+        const [lowerText, upperText] = match.classificationRankRange.split('-');
+        const lowerRank = Number(lowerText);
+        const upperRank = Number(upperText);
+        if (!Number.isFinite(lowerRank) || !Number.isFinite(upperRank) || lowerRank > configuredEntrants) {
+          return undefined;
+        }
+        return {
+          ...match,
+          classificationRankRange: `${lowerRank}-${Math.min(upperRank, configuredEntrants)}`,
+        };
+      };
+      newConsolanteMatches = newConsolanteMatches
+        .map(trimClassificationRange)
+        .filter((match): match is Match => Boolean(match));
+      const remainingClassificationIds = new Set(newConsolanteMatches.map((match) => match.id));
+      newMainMatches = newMainMatches.map((match) =>
+        match.loserNextMatchId && !remainingClassificationIds.has(match.loserNextMatchId)
+          ? { ...match, loserNextMatchId: undefined, loserNextMatchSlot: undefined }
+          : match
+      );
+      newConsolanteMatches = newConsolanteMatches.map((match) => ({
+        ...match,
+        nextMatchId:
+          match.nextMatchId && remainingClassificationIds.has(match.nextMatchId)
+            ? match.nextMatchId
+            : undefined,
+        nextMatchSlot:
+          match.nextMatchId && remainingClassificationIds.has(match.nextMatchId)
+            ? match.nextMatchSlot
+            : undefined,
+        loserNextMatchId:
+          match.loserNextMatchId && remainingClassificationIds.has(match.loserNextMatchId)
+            ? match.loserNextMatchId
+            : undefined,
+        loserNextMatchSlot:
+          match.loserNextMatchId && remainingClassificationIds.has(match.loserNextMatchId)
+            ? match.loserNextMatchSlot
+            : undefined,
+      }));
+    }
 
     onUpdateTournament({
       ...tournament,
+      pairs: tournament.pairs.map((pair) => rankedPairsById.get(pair.id) ?? pair),
+      bracketSize: size,
+      bracketEntrantCount: configuredEntrants,
       bracketMatches: newMainMatches,
       consolanteMatches: newConsolanteMatches,
     });
@@ -393,7 +539,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               }`}
             >
               <Trophy className="w-3.5 h-3.5 text-amber-500" />
-              <span>Classement Général (1 à {mainBracketCapacity})</span>
+              <span>Classement Général (1 à {entrantCount})</span>
             </button>
           </div>
 
@@ -401,21 +547,59 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-xl shadow-xs">
             <select
               value={bracketSize}
-              onChange={(e) => setBracketSize(parseInt(e.target.value) as 4 | 8 | 16 | 24 | 32)}
+              onChange={(e) => {
+                const nextSize = parseInt(e.target.value) as 4 | 8 | 16 | 24 | 32;
+                const nextEntrants = Math.min(entrantCount, nextSize);
+                setBracketSize(nextSize);
+                setEntrantCount(nextEntrants);
+                onUpdateTournament({
+                  ...tournament,
+                  bracketSize: nextSize,
+                  bracketEntrantCount: nextEntrants,
+                });
+              }}
               className="bg-slate-50 border border-slate-300 text-slate-900 font-bold text-xs px-2.5 py-1.5 rounded-lg"
               title="Choisir le format du tournoi complet"
             >
-              <option value="24">Format 24 Équipes (1/16 + 8 Exempts + Classement 1-24)</option>
-              <option value="16">Tableau de 16 (1/8 + Classement 1-16)</option>
-              <option value="8">Tableau de 8 (1/4 + Classement 1-8)</option>
-              <option value="4">Tableau de 4 (1/2 + Finale + 3e place)</option>
+              <option value="24">Tableau de 24 places</option>
+              <option value="16">Tableau de 16 places</option>
+              <option value="8">Tableau de 8 places</option>
+              <option value="4">Tableau de 4 places</option>
             </select>
+            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+              <span>Équipes au tableau</span>
+              <input
+                type="number"
+                min={1}
+                max={bracketSize}
+                value={entrantCount}
+                onChange={(e) => {
+                  const nextEntrants = Math.max(
+                    1,
+                    Math.min(bracketSize, Number.parseInt(e.target.value, 10) || 1)
+                  );
+                  setEntrantCount(nextEntrants);
+                  onUpdateTournament({
+                    ...tournament,
+                    bracketEntrantCount: nextEntrants,
+                  });
+                }}
+                className="w-14 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-xs"
+                aria-label="Nombre d’équipes inscrites au tableau"
+              />
+            </label>
             <button
               onClick={() => handleGenerateFullTournament(bracketSize)}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors"
+              disabled={entrantCount > confirmedPairsCount}
+              title={
+                entrantCount > confirmedPairsCount
+                  ? `Confirmez ${entrantCount - confirmedPairsCount} paire(s) supplémentaire(s)`
+                  : undefined
+              }
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 rounded-lg shadow-xs transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Générer Tournoi ({bracketSize} éq.)</span>
+              <span>Générer ({entrantCount}/{bracketSize})</span>
             </button>
 
             {tournament.bracketMatches.length > 0 && (
@@ -786,13 +970,14 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                 {activeTab === 'main' ? 'Tableau Final Principal' : 'Matchs de Classement'} non générés
               </h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Cliquez ci-dessous pour générer le tournoi complet (tableau principal + consolantes automatiques pour classer toutes les équipes de 1 à {bracketSize}).
+                Cliquez ci-dessous pour générer le tournoi complet et ses matches de classement jusqu’à la {entrantCount}e place.
               </p>
               <button
                 onClick={() => handleGenerateFullTournament(bracketSize)}
+                disabled={entrantCount > confirmedPairsCount}
                 className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors"
               >
-                Générer Tournoi Complet ({bracketSize} équipes)
+                Générer Tournoi Complet ({entrantCount}/{bracketSize})
               </button>
             </div>
           ) : (
