@@ -17,6 +17,18 @@ export function isMatchSchedulable(
   );
 }
 
+export function isConsolanteMatchSchedulable(
+  match: Pick<Match, 'pair1Id' | 'pair1Placeholder' | 'pair2Id' | 'pair2Placeholder'>
+): boolean {
+  const hasParticipant = (pairId?: string, placeholder?: string) =>
+    Boolean(pairId || (placeholder?.trim() && !/(exempt|bye)/i.test(placeholder)));
+
+  return (
+    hasParticipant(match.pair1Id, match.pair1Placeholder) &&
+    hasParticipant(match.pair2Id, match.pair2Placeholder)
+  );
+}
+
 export function compactConsolanteLoserSlots(
   bracketMatches: Match[],
   consolanteMatches: Match[]
@@ -206,7 +218,11 @@ export function createConflictFreeSchedule(
     scheduleStage(
       bracketMatches.filter(match => (match.bracketRound ?? 1) === round)
     );
-    scheduleStage(consolanteMatches.filter(match => (match.bracketRound ?? 1) === round));
+    scheduleStage(
+      consolanteMatches
+        .filter(match => (match.bracketRound ?? 1) === round)
+        .filter(isConsolanteMatchSchedulable)
+    );
   }
 
   return assignments;
