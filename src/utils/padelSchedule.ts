@@ -17,6 +17,78 @@ export function isMatchSchedulable(
   );
 }
 
+export function compactConsolanteLoserSlots(
+  bracketMatches: Match[],
+  consolanteMatches: Match[]
+): { bracketMatches: Match[]; consolanteMatches: Match[] } {
+  const consolanteById = new Map(consolanteMatches.map(match => [match.id, match]));
+  const groups = new Map<string, { sources: Match[]; targets: Match[] }>();
+
+  for (const source of bracketMatches) {
+    if (!source.loserNextMatchId) continue;
+    const target = consolanteById.get(source.loserNextMatchId);
+    if (!target) continue;
+    const groupKey = `${target.classificationRankRange ?? target.roundName}:${target.bracketRound ?? 1}`;
+    const group = groups.get(groupKey) ?? { sources: [], targets: [] };
+    group.sources.push(source);
+    if (!group.targets.some(match => match.id === target.id)) group.targets.push(target);
+    groups.set(groupKey, group);
+  }
+
+  let updatedBracket = bracketMatches;
+  let updatedConsolante = consolanteMatches;
+
+  for (const { sources, targets } of groups.values()) {
+    if (!sources.some(source => !isMatchSchedulable(source))) continue;
+
+    const orderedSources = [...sources].sort((a, b) => a.matchNumber - b.matchNumber);
+    const orderedTargets = [...targets].sort((a, b) => a.matchNumber - b.matchNumber);
+    const playableSources = orderedSources.filter(isMatchSchedulable);
+    if (playableSources.length > orderedTargets.length * 2) continue;
+    if (orderedTargets.some(target => target.status === 'completed' || target.status === 'in_progress')) {
+      continue;
+    }
+
+    const sourceSlots = new Map<string, { targetId: string; slot: 'pair1' | 'pair2' }>();
+    playableSources.forEach((source, index) => {
+      const target = orderedTargets[Math.floor(index / 2)];
+      const slot = index % 2 === 0 ? 'pair1' : 'pair2';
+      sourceSlots.set(source.id, { targetId: target.id, slot });
+    });
+
+    updatedBracket = updatedBracket.map(source => {
+      if (!sources.some(groupSource => groupSource.id === source.id)) return source;
+      const assignment = sourceSlots.get(source.id);
+      return assignment
+        ? { ...source, loserNextMatchId: assignment.targetId, loserNextMatchSlot: assignment.slot }
+        : { ...source, loserNextMatchId: undefined, loserNextMatchSlot: undefined };
+    });
+
+    const loserFor = (source: Match) => {
+      if (!source.winnerPairId) return undefined;
+      return source.winnerPairId === source.pair1Id ? source.pair2Id : source.pair1Id;
+    };
+
+    updatedConsolante = updatedConsolante.map(target => {
+      if (!orderedTargets.some(groupTarget => groupTarget.id === target.id)) return target;
+      const assignedSources = playableSources.filter(
+        source => sourceSlots.get(source.id)?.targetId === target.id
+      );
+      const pair1Source = assignedSources[0];
+      const pair2Source = assignedSources[1];
+      return {
+        ...target,
+        pair1Id: pair1Source ? loserFor(pair1Source) : undefined,
+        pair2Id: pair2Source ? loserFor(pair2Source) : undefined,
+        pair1Placeholder: pair1Source ? `Perdant Match #${pair1Source.matchNumber}` : 'Exempt (Bye)',
+        pair2Placeholder: pair2Source ? `Perdant Match #${pair2Source.matchNumber}` : 'Exempt (Bye)',
+      };
+    });
+  }
+
+  return { bracketMatches: updatedBracket, consolanteMatches: updatedConsolante };
+}
+
 function parseTime(time: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(time);
   if (!match) return null;

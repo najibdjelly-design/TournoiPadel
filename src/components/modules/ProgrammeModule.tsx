@@ -1,7 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { Tournament, Match, Pair, Court, MatchStatus } from '../../types/tournament';
 import { formatScore } from '../../utils/padelCalculations';
-import { createConflictFreeSchedule, isMatchSchedulable } from '../../utils/padelSchedule';
+import {
+  compactConsolanteLoserSlots,
+  createConflictFreeSchedule,
+  isMatchSchedulable,
+} from '../../utils/padelSchedule';
 import {
   CalendarDays,
   Clock,
@@ -453,10 +457,14 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       return;
     }
 
+    const compactedConsolante = compactConsolanteLoserSlots(
+      tournament.bracketMatches,
+      tournament.consolanteMatches
+    );
     const scheduledMatches = createConflictFreeSchedule(
       tournament.pools,
-      tournament.bracketMatches,
-      tournament.consolanteMatches,
+      compactedConsolante.bracketMatches,
+      compactedConsolante.consolanteMatches,
       tournament.courts,
       startTime,
       slotDuration
@@ -476,8 +484,8 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       ...pool,
       matches: applySchedule(pool.matches),
     }));
-    const updatedBracket = applySchedule(tournament.bracketMatches);
-    const updatedConsolante = applySchedule(tournament.consolanteMatches);
+    const updatedBracket = applySchedule(compactedConsolante.bracketMatches);
+    const updatedConsolante = applySchedule(compactedConsolante.consolanteMatches);
 
     onUpdateTournament({
       ...tournament,
