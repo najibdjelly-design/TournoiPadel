@@ -402,9 +402,10 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
       {/* Pairs Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
         <div className="overflow-x-auto touch-pan-x">
-          <table className="w-full text-left text-xs min-w-[700px]">
+          <table className="w-full text-left text-xs min-w-[760px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase tracking-wider font-bold">
               <tr>
+                <th className="py-3 px-3 w-16 text-center">Pos.</th>
                 <th className="py-3 px-3 w-16 text-center">T.S.</th>
                 <th className="py-3 px-4">Joueur 1 (Capitaine)</th>
                 <th className="py-3 px-4">Joueur 2 (Partenaire)</th>
@@ -418,7 +419,7 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
             <tbody className="divide-y divide-slate-100 font-sans">
               {filteredPairs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     Aucune paire trouvée.
                   </td>
                 </tr>
@@ -432,6 +433,12 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
                       key={pair.id}
                       className="hover:bg-slate-50 transition-colors group"
                     >
+                      <td className="py-3 px-3 text-center">
+                        <span className="inline-flex min-w-8 justify-center rounded-md bg-slate-100 px-2 py-1 font-mono font-bold text-slate-700">
+                          {pair.entryPosition ?? '—'}
+                        </span>
+                      </td>
+
                       {/* Seed Selector */}
                       <td className="py-3 px-3 text-center">
                         <select

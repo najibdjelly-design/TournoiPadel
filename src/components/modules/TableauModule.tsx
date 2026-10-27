@@ -828,7 +828,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                     )}
                                     <span className="truncate">
                                       {p1
-                                        ? `${p1.player1.lastName} / ${p1.player2.lastName}`
+                                        ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}`
                                         : match.pair1Placeholder || 'Choisir équipe'}
                                     </span>
                                   </div>
@@ -862,7 +862,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                     )}
                                     <span className="truncate">
                                       {p2
-                                        ? `${p2.player1.lastName} / ${p2.player2.lastName}`
+                                        ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}`
                                         : match.pair2Placeholder || 'Choisir équipe'}
                                     </span>
                                   </div>
@@ -1003,7 +1003,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               slotModalInfo.matchId,
                               slotModalInfo.slot,
                               pair.id,
-                              `${pair.player1.lastName} / ${pair.player2.lastName}`
+                              `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName}`
                             );
                           }}
                           className={`w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between text-xs ${

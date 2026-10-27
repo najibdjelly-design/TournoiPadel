@@ -291,7 +291,9 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
   // Request pair removal (opens in-app confirmation modal)
   const handleRequestRemovePairFromPool = (poolId: string, pairId: string) => {
     const pair = pairsMap.get(pairId);
-    const pairName = pair ? `${pair.player1.lastName} / ${pair.player2.lastName}` : 'cette paire';
+    const pairName = pair
+      ? `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName}`
+      : 'cette paire';
     setPairToRemove({ poolId, pairId, pairName });
   };
 
@@ -599,7 +601,7 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
                 key={p.id}
                 className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg text-slate-800 font-semibold text-xs shadow-2xs"
               >
-                {p.player1.lastName} / {p.player2.lastName} (Poids #{p.totalWeight})
+                {p.player1.firstName} {p.player1.lastName} / {p.player2.firstName} {p.player2.lastName} (Poids #{p.totalWeight})
               </span>
             ))}
           </div>
@@ -720,7 +722,7 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
                                   className="text-left hover:text-emerald-700 hover:underline flex items-center gap-1.5"
                                   title="Cliquer pour voir l'historique des matches"
                                 >
-                                  <span>{pair ? `${pair.player1.lastName} / ${pair.player2.lastName}` : 'Paire'}</span>
+                                  <span>{pair ? `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName}` : 'Paire'}</span>
                                   <History className="w-3 h-3 text-slate-400" />
                                 </button>
                                 {isQualif && (
@@ -787,7 +789,7 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
                         >
                           <div className="min-w-0">
                             <span className="font-bold text-slate-900 truncate block">
-                              {p.player1.lastName} / {p.player2.lastName}
+                              {p.player1.firstName} {p.player1.lastName} / {p.player2.firstName} {p.player2.lastName}
                             </span>
                             <span className="text-[10px] text-slate-500">Poids #{p.totalWeight}</span>
                           </div>
@@ -864,7 +866,7 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
                             }`}
                           >
                             <span className="truncate">
-                              {p1 ? `${p1.player1.lastName} / ${p1.player2.lastName}` : 'Équipe 1'}
+                              {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : 'Équipe 1'}
                             </span>
                             {match.winnerPairId === match.pair1Id && (
                               <Trophy className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -879,7 +881,7 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
                             }`}
                           >
                             <span className="truncate">
-                              {p2 ? `${p2.player1.lastName} / ${p2.player2.lastName}` : 'Équipe 2'}
+                              {p2 ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}` : 'Équipe 2'}
                             </span>
                             {match.winnerPairId === match.pair2Id && (
                               <Trophy className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
