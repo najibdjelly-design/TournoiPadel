@@ -76,6 +76,100 @@ export function resolveBracketByes(
   return { bracketMatches: main, consolanteMatches: consolation };
 }
 
+export function normalizeSixteenTeam24Draw(
+  bracketMatches: Match[],
+  consolanteMatches: Match[],
+  confirmedPairCount: number
+): { bracketMatches: Match[]; consolanteMatches: Match[] } {
+  if (
+    confirmedPairCount > 16 ||
+    bracketMatches.filter(match => match.bracketRound === 1).length !== 8 ||
+    bracketMatches.filter(match => match.bracketRound === 2).length !== 8 ||
+    consolanteMatches.filter(match => match.classificationRankRange === '9-16').length !== 4
+  ) {
+    return { bracketMatches, consolanteMatches };
+  }
+
+  const legacyAwareBracket = bracketMatches.map(match => {
+    if (
+      match.bracketRound === 1 &&
+      !match.pair1Id &&
+      !match.pair2Id
+    ) {
+      return {
+        ...match,
+        pair1Placeholder: 'Bye',
+        pair2Placeholder: 'Bye',
+      };
+    }
+    return match;
+  });
+  const resolvedLegacyByes = resolveBracketByes(legacyAwareBracket, consolanteMatches);
+  const firstRound = resolvedLegacyByes.bracketMatches
+    .filter(match => match.bracketRound === 1)
+    .sort((a, b) => a.matchNumber - b.matchNumber);
+  const secondRound = resolvedLegacyByes.bracketMatches
+    .filter(match => match.bracketRound === 2)
+    .sort((a, b) => a.matchNumber - b.matchNumber);
+
+  const activeMatches = (matches: Match[]) => matches.filter(match =>
+    match.status !== 'walkover' &&
+    !matchHasBye(match, 'pair1') &&
+    !matchHasBye(match, 'pair2') &&
+    isMatchSchedulable(match)
+  );
+  const classificationQuarters = resolvedLegacyByes.consolanteMatches
+    .filter(match => match.classificationRankRange === '9-16')
+    .sort((a, b) => a.matchNumber - b.matchNumber);
+  if (classificationQuarters.some(match =>
+    match.status === 'completed' || match.status === 'in_progress'
+  )) {
+    return resolvedLegacyByes;
+  }
+
+  const sources = [...activeMatches(firstRound), ...activeMatches(secondRound)]
+    .sort((a, b) => a.matchNumber - b.matchNumber);
+  if (sources.length !== classificationQuarters.length * 2) {
+    return { bracketMatches, consolanteMatches };
+  }
+
+  let updatedBracket = resolvedLegacyByes.bracketMatches.map(match =>
+    match.bracketRound === 1 || match.bracketRound === 2
+      ? { ...match, loserNextMatchId: undefined, loserNextMatchSlot: undefined }
+      : match
+  );
+  const updatedConsolante = resolvedLegacyByes.consolanteMatches.filter(match => {
+    const upperRank = Number((match.classificationRankRange ?? '').split('-')[1]);
+    return Number.isFinite(upperRank) && upperRank <= 16;
+  }).map(match => ({ ...match }));
+
+  sources.forEach((source, index) => {
+    const target = classificationQuarters[Math.floor(index / 2)];
+    const slot = index % 2 === 0 ? 'pair1' : 'pair2';
+    const sourceIndex = updatedBracket.findIndex(match => match.id === source.id);
+    if (sourceIndex >= 0) {
+      updatedBracket[sourceIndex] = {
+        ...updatedBracket[sourceIndex],
+        loserNextMatchId: target.id,
+        loserNextMatchSlot: slot,
+      };
+    }
+
+    const targetIndex = updatedConsolante.findIndex(match => match.id === target.id);
+    if (targetIndex < 0) return;
+    const loserPairId = source.winnerPairId
+      ? source.winnerPairId === source.pair1Id ? source.pair2Id : source.pair1Id
+      : undefined;
+    updatedConsolante[targetIndex] = {
+      ...updatedConsolante[targetIndex],
+      [`${slot}Id`]: loserPairId,
+      [`${slot}Placeholder`]: `Perdant Match #${source.matchNumber}`,
+    };
+  });
+
+  return { bracketMatches: updatedBracket, consolanteMatches: updatedConsolante };
+}
+
 function hasParticipant(pairId?: string, placeholder?: string): boolean {
   const label = placeholder?.trim();
   return Boolean(

@@ -7,6 +7,7 @@ import {
   createConflictFreeSchedule,
   isMatchPlayable,
   isMatchSchedulable,
+  normalizeSixteenTeam24Draw,
   resolveBracketByes,
 } from '../../utils/padelSchedule';
 import {
@@ -89,10 +90,17 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map(p => [p.id, p]));
 
-  const compactedConsolante = useMemo(
-    () => compactConsolanteLoserSlots(tournament.bracketMatches, tournament.consolanteMatches),
-    [tournament.bracketMatches, tournament.consolanteMatches]
-  );
+  const compactedConsolante = useMemo(() => {
+    const normalized = normalizeSixteenTeam24Draw(
+      tournament.bracketMatches,
+      tournament.consolanteMatches,
+      tournament.pairs.filter(pair => pair.status === 'confirmed').length
+    );
+    return compactConsolanteLoserSlots(
+      normalized.bracketMatches,
+      normalized.consolanteMatches
+    );
+  }, [tournament.bracketMatches, tournament.consolanteMatches, tournament.pairs]);
 
   // Hide consolation fixtures that do not have two playable participants.
   const visibleConsolanteMatches = useMemo(
@@ -498,9 +506,18 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       return;
     }
 
+    const normalized = normalizeSixteenTeam24Draw(
+      tournament.bracketMatches,
+      tournament.consolanteMatches,
+      tournament.pairs.filter(pair => pair.status === 'confirmed').length
+    );
+    const compacted = compactConsolanteLoserSlots(
+      normalized.bracketMatches,
+      normalized.consolanteMatches
+    );
     const resolvedByes = resolveBracketByes(
-      compactedConsolante.bracketMatches,
-      compactedConsolante.consolanteMatches
+      compacted.bracketMatches,
+      compacted.consolanteMatches
     );
     const scheduledMatches = createConflictFreeSchedule(
       tournament.pools,
