@@ -403,13 +403,11 @@ export function createConflictFreeSchedule(
     match => match.type !== 'bracket' && match.type !== 'consolante'
   );
   if (nonBracketOtherMatches.length) stages.unshift(nonBracketOtherMatches);
+  const nonEmptyStages = stages.filter(stage => stage.length > 0);
   const stageIndexByMatchId = new Map<string, number>();
-  stages.forEach((stage, index) => {
+  nonEmptyStages.forEach((stage, index) => {
     stage.forEach(match => stageIndexByMatchId.set(match.id, index));
   });
-  const lastPriorityMainRound = mainBracketRounds[
-    Math.min(2, mainBracketRounds.length - 1)
-  ];
 
   const getMatchEndAt = (match: Match): number | undefined => {
     if (match.status === 'completed' || match.status === 'walkover') {
@@ -474,50 +472,6 @@ export function createConflictFreeSchedule(
     }
   }
 
-  const getStageBarrier = (match: Match): number | undefined => {
-    const prerequisiteMatches: Match[] = [];
-    if (match.type === 'bracket' && match.bracketRound !== undefined) {
-      const previousRound = [...mainBracketRounds]
-        .reverse()
-        .find(round => round < match.bracketRound!);
-      if (previousRound !== undefined) {
-        prerequisiteMatches.push(...bracketMatches.filter(source =>
-          source.type === 'bracket' &&
-          source.bracketRound === previousRound &&
-          isMatchSchedulable(source)
-        ));
-      }
-    } else if (match.type === 'consolante' && lastPriorityMainRound !== undefined) {
-      prerequisiteMatches.push(...bracketMatches.filter(source =>
-        source.type === 'bracket' &&
-        source.bracketRound === lastPriorityMainRound &&
-        isMatchSchedulable(source)
-      ));
-    }
-
-    prerequisiteMatches.push(...allMatches.filter(source =>
-      (source.nextMatchId === match.id || source.loserNextMatchId === match.id) &&
-      source.type === 'consolante'
-    ));
-
-    if (!prerequisiteMatches.length) return startMs;
-    let latestEnd = startMs;
-    for (const source of new Set(prerequisiteMatches)) {
-      const endAt = getMatchEndAt(source);
-      if (endAt === undefined) return undefined;
-      latestEnd = Math.max(latestEnd, endAt);
-    }
-    return latestEnd;
-  };
-
-  const pending = allMatches.filter(match =>
-    stageIndexByMatchId.has(match.id) &&
-    match.status !== 'completed' &&
-    match.status !== 'walkover' &&
-    match.status !== 'in_progress' &&
-    match.status !== 'warmup'
-  );
-
   const propagateOutcome = (
     source: Match,
     outcome: 'winner' | 'loser',
@@ -554,78 +508,100 @@ export function createConflictFreeSchedule(
     }
   }
 
-  while (pending.length > 0) {
-    const activeStageIndex = Math.min(
-      ...pending.map(match => stageIndexByMatchId.get(match.id) ?? stages.length)
-    );
-    let best: {
-      match: Match;
-      court: Court;
-      startAt: number;
-    } | undefined;
+  const scheduledPending = allMatches.filter(match =>
+    stageIndexByMatchId.has(match.id) &&
+    match.status !== 'completed' &&
+    match.status !== 'walkover' &&
+    match.status !== 'in_progress' &&
+    match.status !== 'warmup'
+  );
+  let previousWaveEnd = startMs;
 
-    for (const match of pending) {
-      if ((stageIndexByMatchId.get(match.id) ?? stages.length) !== activeStageIndex) continue;
-      const pair1 = participantBySlot.get(slotKey(match.id, 'pair1'));
-      const pair2 = participantBySlot.get(slotKey(match.id, 'pair2'));
-      if (!pair1 || !pair2) continue;
-      const pairReadyAt = Math.max(
-        startMs,
-        participantAvailableAt.get(pair1) ?? startMs,
-        participantAvailableAt.get(pair2) ?? startMs,
-        match.pair1Id ? pairAvailableAt.get(match.pair1Id) ?? startMs : startMs,
-        match.pair2Id ? pairAvailableAt.get(match.pair2Id) ?? startMs : startMs
-      );
-      const stageBarrier = getStageBarrier(match);
-      if (stageBarrier === undefined) continue;
-      for (const court of courts) {
-        const startAt = Math.max(
-          pairReadyAt,
-          stageBarrier,
-          courtAvailableAt.get(court.id) ?? startMs
+  for (const [waveIndex, wave] of nonEmptyStages.entries()) {
+    const wavePending = scheduledPending.filter(match => wave.includes(match));
+    if (!wavePending.length) {
+      const completedEnds = wave.map(getMatchEndAt);
+      if (completedEnds.some(endAt => endAt === undefined)) break;
+      previousWaveEnd = Math.max(previousWaveEnd, ...completedEnds as number[]);
+      continue;
+    }
+
+    const waveStartBarrier = waveIndex === 0
+      ? startMs
+      : previousWaveEnd + 60_000;
+
+    while (wavePending.length > 0) {
+      let best: {
+        match: Match;
+        court: Court;
+        startAt: number;
+      } | undefined;
+
+      for (const match of wavePending) {
+        const pair1 = participantBySlot.get(slotKey(match.id, 'pair1'));
+        const pair2 = participantBySlot.get(slotKey(match.id, 'pair2'));
+        if (!pair1 || !pair2) continue;
+
+        const pairReadyAt = Math.max(
+          startMs,
+          participantAvailableAt.get(pair1) ?? startMs,
+          participantAvailableAt.get(pair2) ?? startMs,
+          match.pair1Id ? pairAvailableAt.get(match.pair1Id) ?? startMs : startMs,
+          match.pair2Id ? pairAvailableAt.get(match.pair2Id) ?? startMs : startMs
         );
-        if (
-          !best ||
-          startAt < best.startAt ||
-          (startAt === best.startAt &&
-            (match.type === 'bracket' && best.match.type === 'consolante' ||
-              match.type === best.match.type && match.matchNumber < best.match.matchNumber))
-        ) {
-          best = { match, court, startAt };
+
+        for (const court of courts) {
+          const startAt = Math.max(
+            pairReadyAt,
+            waveStartBarrier,
+            courtAvailableAt.get(court.id) ?? startMs
+          );
+          if (
+            !best ||
+            startAt < best.startAt ||
+            (startAt === best.startAt && match.matchNumber < best.match.matchNumber)
+          ) {
+            best = { match, court, startAt };
+          }
         }
       }
+
+      if (!best) break;
+
+      const duration = (best.match.durationMinutes ?? slotDuration) * 60_000;
+      const availableAt = best.startAt + duration;
+      assignments.set(best.match.id, {
+        courtId: best.court.id,
+        time: formatTime(new Date(best.startAt)),
+        scheduledAt: new Date(best.startAt).toISOString(),
+      });
+      courtAvailableAt.set(best.court.id, availableAt);
+      for (const pairId of [best.match.pair1Id, best.match.pair2Id]) {
+        if (pairId) pairAvailableAt.set(pairId, availableAt);
+      }
+      propagateOutcome(
+        best.match,
+        'winner',
+        best.match.nextMatchId,
+        best.match.nextMatchSlot,
+        availableAt,
+        true
+      );
+      propagateOutcome(
+        best.match,
+        'loser',
+        best.match.loserNextMatchId,
+        best.match.loserNextMatchSlot,
+        availableAt,
+        true
+      );
+      wavePending.splice(wavePending.findIndex(match => match.id === best!.match.id), 1);
     }
 
-    if (!best) break;
-
-    const duration = (best.match.durationMinutes ?? slotDuration) * 60_000;
-    const availableAt = best.startAt + duration;
-    assignments.set(best.match.id, {
-      courtId: best.court.id,
-      time: formatTime(new Date(best.startAt)),
-      scheduledAt: new Date(best.startAt).toISOString(),
-    });
-    courtAvailableAt.set(best.court.id, availableAt);
-    for (const pairId of [best.match.pair1Id, best.match.pair2Id]) {
-      if (pairId) pairAvailableAt.set(pairId, availableAt);
-    }
-    propagateOutcome(
-      best.match,
-      'winner',
-      best.match.nextMatchId,
-      best.match.nextMatchSlot,
-      availableAt,
-      true
-    );
-    propagateOutcome(
-      best.match,
-      'loser',
-      best.match.loserNextMatchId,
-      best.match.loserNextMatchSlot,
-      availableAt,
-      true
-    );
-    pending.splice(pending.findIndex(match => match.id === best!.match.id), 1);
+    if (wavePending.length > 0) break;
+    const waveEnds = wave.map(getMatchEndAt);
+    if (waveEnds.some(endAt => endAt === undefined)) break;
+    previousWaveEnd = Math.max(previousWaveEnd, ...waveEnds as number[]);
   }
 
   return assignments;
