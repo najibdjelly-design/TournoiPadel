@@ -424,6 +424,72 @@ export function createConflictFreeSchedule(
     match.status !== 'warmup'
   );
 
+  const mainBracketRounds = [...new Set(
+    bracketMatches
+      .filter(match => match.type === 'bracket' && match.bracketRound !== undefined && isMatchSchedulable(match))
+      .map(match => match.bracketRound!)
+  )].sort((a, b) => a - b);
+  const priorityMainRound = mainBracketRounds[Math.min(2, mainBracketRounds.length - 1)];
+
+  const getMatchEndAt = (match: Match): number | undefined => {
+    const fixedStart = scheduledStart(match);
+    if (fixedStart !== undefined) {
+      return fixedStart + (match.durationMinutes ?? slotDuration) * 60_000;
+    }
+    const assignment = assignments.get(match.id);
+    if (assignment) {
+      const start = Date.parse(assignment.scheduledAt);
+      return Number.isFinite(start)
+        ? start + (match.durationMinutes ?? slotDuration) * 60_000
+        : undefined;
+    }
+    if (match.status === 'completed' && match.completedAt) {
+      const completedAt = Date.parse(match.completedAt);
+      return Number.isFinite(completedAt) ? completedAt : undefined;
+    }
+    if (match.status === 'walkover') {
+      return match.completedAt && Number.isFinite(Date.parse(match.completedAt))
+        ? Date.parse(match.completedAt)
+        : startMs;
+    }
+    return undefined;
+  };
+
+  const getStageBarrier = (match: Match): number | undefined => {
+    let requiredRound: number | undefined;
+    if (match.type === 'bracket' && match.bracketRound !== undefined) {
+      requiredRound = [...mainBracketRounds]
+        .reverse()
+        .find(round => round < match.bracketRound!);
+    } else {
+      const incomingMainRounds = bracketMatches
+        .filter(source => source.loserNextMatchId === match.id && source.bracketRound !== undefined)
+        .map(source => source.bracketRound!);
+      if (incomingMainRounds.length) {
+        requiredRound = Math.max(
+          ...incomingMainRounds,
+          priorityMainRound ?? Number.NEGATIVE_INFINITY
+        );
+      }
+    }
+
+    if (requiredRound === undefined) return undefined;
+    const requiredMatches = bracketMatches.filter(source =>
+      source.type === 'bracket' &&
+      source.bracketRound === requiredRound &&
+      isMatchSchedulable(source)
+    );
+    if (!requiredMatches.length) return undefined;
+
+    let latestEnd = startMs;
+    for (const requiredMatch of requiredMatches) {
+      const endAt = getMatchEndAt(requiredMatch);
+      if (endAt === undefined) return undefined;
+      latestEnd = Math.max(latestEnd, endAt);
+    }
+    return latestEnd;
+  };
+
   const propagateOutcome = (
     source: Match,
     outcome: 'winner' | 'loser',
@@ -498,12 +564,25 @@ export function createConflictFreeSchedule(
         match.pair1Id ? pairAvailableAt.get(match.pair1Id) ?? startMs : startMs,
         match.pair2Id ? pairAvailableAt.get(match.pair2Id) ?? startMs : startMs
       );
+      const stageBarrier = getStageBarrier(match);
+      if (stageBarrier === undefined && (
+        (match.type === 'bracket' && match.bracketRound !== undefined &&
+          mainBracketRounds.some(round => round < match.bracketRound!)) ||
+        (match.type === 'consolante' &&
+          bracketMatches.some(source => source.loserNextMatchId === match.id && source.bracketRound !== undefined))
+      )) continue;
       for (const court of courts) {
-        const startAt = Math.max(pairReadyAt, courtAvailableAt.get(court.id) ?? startMs);
+        const startAt = Math.max(
+          pairReadyAt,
+          stageBarrier ?? startMs,
+          courtAvailableAt.get(court.id) ?? startMs
+        );
         if (
           !best ||
           startAt < best.startAt ||
-          (startAt === best.startAt && match.matchNumber < best.match.matchNumber)
+          (startAt === best.startAt &&
+            (match.type === 'bracket' && best.match.type === 'consolante' ||
+              match.type === best.match.type && match.matchNumber < best.match.matchNumber))
         ) {
           best = { match, court, startAt };
         }
