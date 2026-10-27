@@ -372,10 +372,79 @@ export function createConflictFreeSchedule(
     Math.min(2, mainBracketRounds.length - 1)
   ];
 
+  const getMatchEndAt = (match: Match): number | undefined => {
+    if (match.status === 'completed' || match.status === 'walkover') {
+      const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
+      return Number.isFinite(completedAt) ? completedAt : startMs;
+    }
+
+    const assignment = assignments.get(match.id);
+    const scheduledAt = assignment?.scheduledAt ?? match.scheduledAt;
+    if (scheduledAt) {
+      const start = Date.parse(scheduledAt);
+      return Number.isFinite(start) &&
+        (assignments.has(match.id) || canKeepFixedSchedule(match, start))
+        ? start + (match.durationMinutes ?? slotDuration) * 60_000
+        : undefined;
+    }
+    const scheduledTime = match.scheduledTime ? parseTime(match.scheduledTime) : null;
+    if (
+      scheduledTime !== null &&
+      match.courtId &&
+      canKeepFixedSchedule(
+        match,
+        (() => {
+          const date = new Date(scheduleStart);
+          date.setHours(0, 0, 0, 0);
+          date.setMinutes(scheduledTime);
+          return date.getTime();
+        })()
+      )
+    ) {
+      const start = new Date(scheduleStart);
+      start.setHours(0, 0, 0, 0);
+      start.setMinutes(scheduledTime);
+      return start.getTime() + (match.durationMinutes ?? slotDuration) * 60_000;
+    }
+    return undefined;
+  };
+
+  const canKeepFixedSchedule = (match: Match, fixedStart: number): boolean => {
+    const prerequisites: Match[] = [];
+    if (match.type === 'bracket' && match.bracketRound !== undefined) {
+      const previousRound = [...mainBracketRounds]
+        .reverse()
+        .find(round => round < match.bracketRound!);
+      if (previousRound !== undefined) {
+        prerequisites.push(...bracketMatches.filter(source =>
+          source.type === 'bracket' &&
+          source.bracketRound === previousRound &&
+          isMatchSchedulable(source)
+        ));
+      }
+    } else if (match.type === 'consolante' && lastPriorityMainRound !== undefined) {
+      prerequisites.push(...bracketMatches.filter(source =>
+        source.type === 'bracket' &&
+        source.bracketRound === lastPriorityMainRound &&
+        isMatchSchedulable(source)
+      ));
+    }
+
+    prerequisites.push(...allMatches.filter(source =>
+      (source.nextMatchId === match.id || source.loserNextMatchId === match.id) &&
+      source.type === 'consolante'
+    ));
+
+    const prerequisiteEnds = prerequisites.map(getMatchEndAt);
+    if (prerequisiteEnds.some(endAt => endAt === undefined)) return false;
+    return prerequisiteEnds.every(endAt => fixedStart >= endAt!);
+  };
+
   for (const match of allMatches) {
     const fixedStart = scheduledStart(match);
     if (
       fixedStart !== undefined &&
+      canKeepFixedSchedule(match, fixedStart) &&
       match.status !== 'completed' &&
       match.status !== 'walkover' &&
       match.status !== 'in_progress' &&
@@ -436,21 +505,6 @@ export function createConflictFreeSchedule(
     }
   }
 
-  const getMatchEndAt = (match: Match): number | undefined => {
-    const assignment = assignments.get(match.id);
-    if (assignment) {
-      const start = Date.parse(assignment.scheduledAt);
-      return Number.isFinite(start)
-        ? start + (match.durationMinutes ?? slotDuration) * 60_000
-        : undefined;
-    }
-    if (match.status === 'completed' || match.status === 'walkover') {
-      const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
-      return Number.isFinite(completedAt) ? completedAt : startMs;
-    }
-    return undefined;
-  };
-
   const getStageBarrier = (match: Match): number | undefined => {
     const prerequisiteMatches: Match[] = [];
     if (match.type === 'bracket' && match.bracketRound !== undefined) {
@@ -488,7 +542,7 @@ export function createConflictFreeSchedule(
   };
 
   const pending = allMatches.filter(match =>
-    !scheduledStart(match) &&
+    (!scheduledStart(match) || !assignments.has(match.id)) &&
     match.status !== 'completed' &&
     match.status !== 'walkover' &&
     match.status !== 'in_progress' &&

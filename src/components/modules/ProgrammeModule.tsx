@@ -798,7 +798,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                 <strong>{formatWaitTime(progressionWaitSummary.maximum)}</strong>.
               </p>
               <p className="mt-1 text-sky-800">
-                Le programme peut lancer un huitième avant la fin de tous les seizièmes ; le repos de chaque passage est indiqué sous le match concerné. Aucun repos minimal n’est imposé automatiquement.
+                Chaque tour commence uniquement après la fin planifiée de tous les matchs du tour précédent. Le repos indiqué correspond au temps entre la fin du match et le début du suivant.
               </p>
             </div>
           </div>
