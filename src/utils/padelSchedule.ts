@@ -5,6 +5,18 @@ export interface ScheduleAssignment {
   time: string;
 }
 
+export function isMatchSchedulable(
+  match: Pick<Match, 'pair1Id' | 'pair1Placeholder' | 'pair2Id' | 'pair2Placeholder'>
+): boolean {
+  const hasParticipant = (pairId?: string, placeholder?: string) =>
+    Boolean(pairId || (placeholder?.trim() && !/(exempt|bye)/i.test(placeholder)));
+
+  return (
+    hasParticipant(match.pair1Id, match.pair1Placeholder) ||
+    hasParticipant(match.pair2Id, match.pair2Placeholder)
+  );
+}
+
 function parseTime(time: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(time);
   if (!match) return null;
@@ -38,7 +50,9 @@ export function createConflictFreeSchedule(
   const pairMatchCount = new Map<string, number>();
 
   const scheduleStage = (stageMatches: Match[]) => {
-    const pending = [...stageMatches].sort((a, b) => a.matchNumber - b.matchNumber);
+    const pending = stageMatches
+      .filter(isMatchSchedulable)
+      .sort((a, b) => a.matchNumber - b.matchNumber);
     while (pending.length > 0) {
       const usedPairs = new Set<string>();
       let courtIndex = 0;

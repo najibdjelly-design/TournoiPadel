@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Tournament, Match, Pair, Court, MatchStatus } from '../../types/tournament';
 import { formatScore } from '../../utils/padelCalculations';
-import { createConflictFreeSchedule } from '../../utils/padelSchedule';
+import { createConflictFreeSchedule, isMatchSchedulable } from '../../utils/padelSchedule';
 import {
   CalendarDays,
   Clock,
@@ -20,6 +20,7 @@ import {
   Trash2,
   Repeat,
   X,
+  GripVertical,
 } from 'lucide-react';
 
 interface ProgrammeModuleProps {
@@ -66,6 +67,8 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   const [selectedCourtId, setSelectedCourtId] = useState<string>('all');
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assigningSlot, setAssigningSlot] = useState<{ courtId: string; time: string } | null>(null);
+  const [draggedMatchId, setDraggedMatchId] = useState<string | null>(null);
+  const [dragOverSlotKey, setDragOverSlotKey] = useState<string | null>(null);
 
   // Customizable slot duration in minutes (e.g. 45, 60, 75, 90)
   const [slotDuration, setSlotDuration] = useState<number>(
@@ -105,7 +108,8 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   }, [tournament]);
 
   // Matches not yet scheduled with time or court
-  const unscheduledMatches = allMatches.filter(m => !m.scheduledTime || !m.courtId);
+  const schedulableMatches = allMatches.filter(isMatchSchedulable);
+  const unscheduledMatches = schedulableMatches.filter(m => !m.scheduledTime || !m.courtId);
 
   // Save slot duration / start time in tournament
   const handleUpdateDurationSettings = (newDuration: number, newStart: string) => {
@@ -215,6 +219,55 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
 
     setIsAssignModalOpen(false);
     setAssigningSlot(null);
+  };
+
+  const handleMoveMatchToSlot = (matchId: string, courtId: string, time: string) => {
+    const sourceMatch = allMatches.find(match => match.id === matchId);
+    if (
+      !sourceMatch?.courtId ||
+      !sourceMatch.scheduledTime ||
+      sourceMatch.status === 'in_progress' ||
+      sourceMatch.status === 'completed'
+    ) {
+      return;
+    }
+
+    const targetMatch = allMatches.find(
+      match => match.courtId === courtId && match.scheduledTime === time
+    );
+    if (
+      targetMatch &&
+      (targetMatch.status === 'in_progress' || targetMatch.status === 'completed')
+    ) {
+      return;
+    }
+
+    const updateMatchInArray = (arr: Match[]) =>
+      arr.map(match => {
+        if (match.id === sourceMatch.id) {
+          return { ...match, courtId, scheduledTime: time };
+        }
+        if (targetMatch && match.id === targetMatch.id) {
+          return {
+            ...match,
+            courtId: sourceMatch.courtId,
+            scheduledTime: sourceMatch.scheduledTime,
+          };
+        }
+        return match;
+      });
+
+    onUpdateTournament({
+      ...tournament,
+      pools: tournament.pools.map(pool => ({
+        ...pool,
+        matches: updateMatchInArray(pool.matches),
+      })),
+      bracketMatches: updateMatchInArray(tournament.bracketMatches),
+      consolanteMatches: updateMatchInArray(tournament.consolanteMatches),
+    });
+    setDraggedMatchId(null);
+    setDragOverSlotKey(null);
   };
 
   // Add a new court
@@ -412,9 +465,12 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
     const applySchedule = (matches: Match[]) =>
       matches.map(match => {
         const assignment = scheduledMatches.get(match.id);
-        return assignment
-          ? { ...match, courtId: assignment.courtId, scheduledTime: assignment.time }
-          : match;
+        if (assignment) {
+          return { ...match, courtId: assignment.courtId, scheduledTime: assignment.time };
+        }
+        return isMatchSchedulable(match)
+          ? match
+          : { ...match, courtId: undefined, scheduledTime: undefined };
       });
     const updatedPools = tournament.pools.map(pool => ({
       ...pool,
@@ -453,7 +509,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       groups.set(label, (groups.get(label) ?? 0) + pool.matches.length);
       return groups;
     }, new Map<string, number>());
-  const scheduledMatchCount = allMatches.filter(match => match.scheduledTime && match.courtId).length;
+  const scheduledMatchCount = schedulableMatches.filter(match => match.scheduledTime && match.courtId).length;
 
   const displayedCourts =
     selectedCourtId === 'all'
@@ -552,7 +608,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 shadow-xs">
           <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Déjà programmés</p>
-          <p className="mt-1 text-lg font-extrabold text-emerald-950">{scheduledMatchCount}/{allMatches.length}</p>
+          <p className="mt-1 text-lg font-extrabold text-emerald-950">{scheduledMatchCount}/{schedulableMatches.length}</p>
         </div>
       </section>
 
@@ -725,6 +781,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
               {/* Time Slots */}
               <div className="space-y-3 flex-1">
                 {timeSlots.map((time) => {
+                  const slotKey = `${court.id}:${time}`;
                   const match = allMatches.find(
                     m => m.courtId === court.id && m.scheduledTime === time
                   );
@@ -746,10 +803,25 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                           ? 'bg-slate-50 border-slate-200 text-slate-500'
                           : isWarmup
                           ? 'bg-amber-50 border-amber-300'
+                          : dragOverSlotKey === slotKey
+                          ? 'bg-emerald-50 border-emerald-400 ring-1 ring-emerald-300'
                           : match
                           ? 'bg-white border-slate-200 shadow-xs'
                           : 'bg-slate-50/60 border-dashed border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/20 cursor-pointer'
                       }`}
+                      onDragOver={(event) => {
+                        if (!draggedMatchId) return;
+                        event.preventDefault();
+                        setDragOverSlotKey(slotKey);
+                      }}
+                      onDragLeave={() => setDragOverSlotKey(null)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const matchId = draggedMatchId || event.dataTransfer.getData('text/plain');
+                        if (matchId) handleMoveMatchToSlot(matchId, court.id, time);
+                        setDragOverSlotKey(null);
+                      }}
                       onClick={() => {
                         if (!match) {
                           setAssigningSlot({ courtId: court.id, time });
@@ -789,8 +861,28 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
 
                       {/* Match Details */}
                       {match ? (
-                        <div className="space-y-1.5">
-                          <p className="text-[11px] text-slate-500 font-medium">
+                        <div
+                          className={`space-y-1.5 ${
+                            !isLive && !isFinished ? 'cursor-grab active:cursor-grabbing' : ''
+                          }`}
+                          draggable={!isLive && !isFinished}
+                          onDragStart={(event) => {
+                            if (isLive || isFinished) {
+                              event.preventDefault();
+                              return;
+                            }
+                            event.dataTransfer.setData('text/plain', match.id);
+                            event.dataTransfer.effectAllowed = 'move';
+                            setDraggedMatchId(match.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedMatchId(null);
+                            setDragOverSlotKey(null);
+                          }}
+                          title={!isLive && !isFinished ? 'Glisser-déposer pour déplacer ce match' : undefined}
+                        >
+                          <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                            {!isLive && !isFinished && <GripVertical className="w-3 h-3 shrink-0" />}
                             {match.roundName}
                           </p>
                           <div className="font-semibold text-slate-900 space-y-0.5">
