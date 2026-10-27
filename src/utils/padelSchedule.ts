@@ -368,6 +368,45 @@ export function createConflictFreeSchedule(
       )
       .map(match => match.bracketRound!)
   )].sort((a, b) => a - b);
+  const stages: Match[][] = [];
+  const poolPhases = [...new Set(pools.map(pool => pool.phase ?? 1))].sort((a, b) => a - b);
+  for (const phase of poolPhases) {
+    const phasePoolIds = new Set(
+      pools.filter(pool => (pool.phase ?? 1) === phase).map(pool => pool.id)
+    );
+    stages.push(allMatches.filter(match =>
+      match.type === 'pool' &&
+      match.poolId !== undefined &&
+      phasePoolIds.has(match.poolId)
+    ));
+  }
+  for (const round of mainBracketRounds) {
+    stages.push(bracketMatches.filter(match =>
+      match.type === 'bracket' &&
+      match.bracketRound === round &&
+      isMatchSchedulable(match)
+    ));
+  }
+  const consolationRounds = [...new Set(
+    consolanteMatches
+      .filter(match => match.bracketRound !== undefined && isMatchSchedulable(match))
+      .map(match => match.bracketRound!)
+  )].sort((a, b) => a - b);
+  for (const round of consolationRounds) {
+    stages.push(consolanteMatches.filter(match =>
+      match.bracketRound === round && isMatchSchedulable(match)
+    ));
+  }
+  const stagedMatchIds = new Set(stages.flat().map(match => match.id));
+  const otherMatches = allMatches.filter(match => !stagedMatchIds.has(match.id));
+  const nonBracketOtherMatches = otherMatches.filter(
+    match => match.type !== 'bracket' && match.type !== 'consolante'
+  );
+  if (nonBracketOtherMatches.length) stages.unshift(nonBracketOtherMatches);
+  const stageIndexByMatchId = new Map<string, number>();
+  stages.forEach((stage, index) => {
+    stage.forEach(match => stageIndexByMatchId.set(match.id, index));
+  });
   const lastPriorityMainRound = mainBracketRounds[
     Math.min(2, mainBracketRounds.length - 1)
   ];
@@ -377,96 +416,26 @@ export function createConflictFreeSchedule(
       const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
       return Number.isFinite(completedAt) ? completedAt : startMs;
     }
-
+    if (match.status === 'in_progress' || match.status === 'warmup') {
+      const startedAt = match.startedAt ? Date.parse(match.startedAt) : NaN;
+      const fixedStart = scheduledStart(match);
+      const start = Number.isFinite(startedAt)
+        ? startedAt
+        : fixedStart ?? nowMs ?? startMs;
+      return Math.max(
+        nowMs ?? start,
+        start + (match.durationMinutes ?? slotDuration) * 60_000
+      );
+    }
     const assignment = assignments.get(match.id);
-    const scheduledAt = assignment?.scheduledAt ?? match.scheduledAt;
-    if (scheduledAt) {
-      const start = Date.parse(scheduledAt);
-      return Number.isFinite(start) &&
-        (assignments.has(match.id) || canKeepFixedSchedule(match, start))
-        ? start + (match.durationMinutes ?? slotDuration) * 60_000
-        : undefined;
-    }
-    const scheduledTime = match.scheduledTime ? parseTime(match.scheduledTime) : null;
-    if (
-      scheduledTime !== null &&
-      match.courtId &&
-      canKeepFixedSchedule(
-        match,
-        (() => {
-          const date = new Date(scheduleStart);
-          date.setHours(0, 0, 0, 0);
-          date.setMinutes(scheduledTime);
-          return date.getTime();
-        })()
-      )
-    ) {
-      const start = new Date(scheduleStart);
-      start.setHours(0, 0, 0, 0);
-      start.setMinutes(scheduledTime);
-      return start.getTime() + (match.durationMinutes ?? slotDuration) * 60_000;
-    }
-    return undefined;
-  };
-
-  const canKeepFixedSchedule = (match: Match, fixedStart: number): boolean => {
-    const prerequisites: Match[] = [];
-    if (match.type === 'bracket' && match.bracketRound !== undefined) {
-      const previousRound = [...mainBracketRounds]
-        .reverse()
-        .find(round => round < match.bracketRound!);
-      if (previousRound !== undefined) {
-        prerequisites.push(...bracketMatches.filter(source =>
-          source.type === 'bracket' &&
-          source.bracketRound === previousRound &&
-          isMatchSchedulable(source)
-        ));
-      }
-    } else if (match.type === 'consolante' && lastPriorityMainRound !== undefined) {
-      prerequisites.push(...bracketMatches.filter(source =>
-        source.type === 'bracket' &&
-        source.bracketRound === lastPriorityMainRound &&
-        isMatchSchedulable(source)
-      ));
-    }
-
-    prerequisites.push(...allMatches.filter(source =>
-      (source.nextMatchId === match.id || source.loserNextMatchId === match.id) &&
-      source.type === 'consolante'
-    ));
-
-    const prerequisiteEnds = prerequisites.map(getMatchEndAt);
-    if (prerequisiteEnds.some(endAt => endAt === undefined)) return false;
-    return prerequisiteEnds.every(endAt => fixedStart >= endAt!);
+    if (!assignment) return undefined;
+    const start = Date.parse(assignment.scheduledAt);
+    return Number.isFinite(start)
+      ? start + (match.durationMinutes ?? slotDuration) * 60_000
+      : undefined;
   };
 
   for (const match of allMatches) {
-    const fixedStart = scheduledStart(match);
-    if (
-      fixedStart !== undefined &&
-      canKeepFixedSchedule(match, fixedStart) &&
-      match.status !== 'completed' &&
-      match.status !== 'walkover' &&
-      match.status !== 'in_progress' &&
-      match.status !== 'warmup'
-    ) {
-      const fixedEnd = fixedStart + (match.durationMinutes ?? slotDuration) * 60_000;
-      assignments.set(match.id, {
-        courtId: match.courtId!,
-        time: match.scheduledTime!,
-        scheduledAt: match.scheduledAt && Number.isFinite(Date.parse(match.scheduledAt))
-          ? match.scheduledAt
-          : new Date(fixedStart).toISOString(),
-      });
-      courtAvailableAt.set(
-        match.courtId!,
-        Math.max(courtAvailableAt.get(match.courtId!) ?? startMs, fixedEnd)
-      );
-      for (const pairId of [match.pair1Id, match.pair2Id]) {
-        if (pairId) pairAvailableAt.set(pairId, Math.max(pairAvailableAt.get(pairId) ?? startMs, fixedEnd));
-      }
-    }
-
     for (const slot of ['pair1', 'pair2'] as const) {
       const pairId = match[`${slot}Id`];
       const placeholder = match[`${slot}Placeholder`];
@@ -542,7 +511,7 @@ export function createConflictFreeSchedule(
   };
 
   const pending = allMatches.filter(match =>
-    (!scheduledStart(match) || !assignments.has(match.id)) &&
+    stageIndexByMatchId.has(match.id) &&
     match.status !== 'completed' &&
     match.status !== 'walkover' &&
     match.status !== 'in_progress' &&
@@ -585,23 +554,10 @@ export function createConflictFreeSchedule(
     }
   }
 
-  const fixedMatches = allMatches
-    .map(match => ({ match, start: scheduledStart(match) }))
-    .filter((item): item is { match: Match; start: number } =>
-      item.start !== undefined &&
-      item.match.status !== 'completed' &&
-      item.match.status !== 'walkover' &&
-      item.match.status !== 'in_progress' &&
-      item.match.status !== 'warmup'
-    )
-    .sort((a, b) => a.start - b.start);
-  for (const { match, start } of fixedMatches) {
-    const availableAt = start + (match.durationMinutes ?? slotDuration) * 60_000;
-    propagateOutcome(match, 'winner', match.nextMatchId, match.nextMatchSlot, availableAt, true);
-    propagateOutcome(match, 'loser', match.loserNextMatchId, match.loserNextMatchSlot, availableAt, true);
-  }
-
   while (pending.length > 0) {
+    const activeStageIndex = Math.min(
+      ...pending.map(match => stageIndexByMatchId.get(match.id) ?? stages.length)
+    );
     let best: {
       match: Match;
       court: Court;
@@ -609,6 +565,7 @@ export function createConflictFreeSchedule(
     } | undefined;
 
     for (const match of pending) {
+      if ((stageIndexByMatchId.get(match.id) ?? stages.length) !== activeStageIndex) continue;
       const pair1 = participantBySlot.get(slotKey(match.id, 'pair1'));
       const pair2 = participantBySlot.get(slotKey(match.id, 'pair2'));
       if (!pair1 || !pair2) continue;
