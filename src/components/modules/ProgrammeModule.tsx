@@ -67,6 +67,25 @@ function timeToMinutes(time: string): number | null {
   return hours * 60 + minutes;
 }
 
+function getScheduledStartMinutes(match: Match): number | null {
+  const timestamp = match.scheduledAt ? Date.parse(match.scheduledAt) : NaN;
+  if (Number.isFinite(timestamp)) {
+    const storedDate = new Date(timestamp);
+    const storedTime = `${storedDate.getHours().toString().padStart(2, '0')}:${storedDate.getMinutes().toString().padStart(2, '0')}`;
+    if (storedTime === match.scheduledTime) return timestamp / 60_000;
+  }
+  const minutes = match.scheduledTime ? timeToMinutes(match.scheduledTime) : null;
+  return minutes;
+}
+
+function formatWaitTime(minutes: number): string {
+  if (minutes <= 0) return minutes === 0 ? 'enchaînement direct' : `conflit (${Math.abs(minutes)} min trop tôt)`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours === 0) return `${remainingMinutes} min`;
+  return remainingMinutes === 0 ? `${hours} h` : `${hours} h ${remainingMinutes} min`;
+}
+
 export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   tournament,
   onUpdateTournament,
@@ -124,6 +143,50 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       ...visibleConsolanteMatches,
     ];
   }, [tournament.pools, visibleBracketMatches, visibleConsolanteMatches]);
+
+  const progressionWaitsByMatch = useMemo(() => {
+    const matchesById = new Map(allMatches.map(match => [match.id, match]));
+    const waits = new Map<string, { label: string; roundName: string; minutes: number }[]>();
+
+    for (const match of allMatches) {
+      if (!match.scheduledTime) continue;
+      const start = getScheduledStartMinutes(match);
+      if (start === null) continue;
+
+      const edges = [
+        { targetId: match.nextMatchId, label: 'Vainqueur' },
+        { targetId: match.loserNextMatchId, label: 'Perdant' },
+      ];
+      const matchWaits = edges.flatMap(({ targetId, label }) => {
+        const nextMatch = targetId ? matchesById.get(targetId) : undefined;
+        if (!nextMatch?.scheduledTime) return [];
+        const nextStart = getScheduledStartMinutes(nextMatch);
+        if (nextStart === null) return [];
+        const playedDuration = match.durationMinutes ?? slotDuration;
+        return [{
+          label,
+          roundName: nextMatch.roundName,
+          minutes: Math.round(nextStart - (start + playedDuration)),
+        }];
+      });
+
+      if (matchWaits.length) waits.set(match.id, matchWaits);
+    }
+
+    return waits;
+  }, [allMatches, slotDuration]);
+
+  const progressionWaitSummary = useMemo(() => {
+    const waits = [...progressionWaitsByMatch.values()].flat().map(wait => wait.minutes);
+    if (!waits.length) return null;
+    const sortedWaits = [...waits].sort((a, b) => a - b);
+    return {
+      count: waits.length,
+      minimum: sortedWaits[0],
+      average: Math.round(waits.reduce((sum, wait) => sum + wait, 0) / waits.length),
+      maximum: sortedWaits[sortedWaits.length - 1],
+    };
+  }, [progressionWaitsByMatch]);
 
   // Compute time slots based on slot duration in minutes
   const timeSlots = useMemo(() => {
@@ -720,6 +783,26 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
         </div>
       )}
 
+      {progressionWaitSummary && (
+        <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-950 shadow-xs">
+          <div className="flex items-start gap-2">
+            <Clock className="w-4 h-4 mt-0.5 text-sky-700 shrink-0" />
+            <div>
+              <p className="font-bold">Repos prévu entre les matchs à élimination</p>
+              <p className="mt-1">
+                Sur {progressionWaitSummary.count} enchaînement(s) programmé(s) : minimum{' '}
+                <strong>{formatWaitTime(progressionWaitSummary.minimum)}</strong>, moyenne{' '}
+                <strong>{formatWaitTime(progressionWaitSummary.average)}</strong>, maximum{' '}
+                <strong>{formatWaitTime(progressionWaitSummary.maximum)}</strong>.
+              </p>
+              <p className="mt-1 text-sky-800">
+                Le programme peut lancer un huitième avant la fin de tous les seizièmes ; le repos de chaque passage est indiqué sous le match concerné. Aucun repos minimal n’est imposé automatiquement.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {optimizationReport && (
         <div className="p-3 bg-white border border-emerald-300 rounded-xl text-xs text-emerald-950 flex items-center justify-between shadow-xs">
           <span>{optimizationReport}</span>
@@ -971,6 +1054,18 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                                 : match.pair2Placeholder}
                             </p>
                           </div>
+
+                          {progressionWaitsByMatch.get(match.id)?.map(wait => (
+                            <p
+                              key={`${match.id}-${wait.label}`}
+                              className={`flex items-center gap-1 text-[10px] font-medium ${
+                                wait.minutes < 0 ? 'text-rose-700' : 'text-sky-800'
+                              }`}
+                            >
+                              <Clock className="w-3 h-3 shrink-0" />
+                              {wait.label} → {wait.roundName} : {formatWaitTime(wait.minutes)}
+                            </p>
+                          ))}
 
                           {match.score && (
                             <p className="font-mono text-emerald-700 font-bold text-xs pt-1">
