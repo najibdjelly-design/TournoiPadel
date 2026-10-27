@@ -5,29 +5,33 @@ export interface ScheduleAssignment {
   time: string;
 }
 
+function hasParticipant(pairId?: string, placeholder?: string): boolean {
+  const label = placeholder?.trim();
+  return Boolean(
+    pairId ||
+    (label && !/(exempt|bye)/i.test(label) && !/^qualifi[eé]\s*\/\s*rang\b/i.test(label))
+  );
+}
+
 export function isMatchSchedulable(
   match: Pick<Match, 'pair1Id' | 'pair1Placeholder' | 'pair2Id' | 'pair2Placeholder'>
 ): boolean {
-  const hasParticipant = (pairId?: string, placeholder?: string) =>
-    Boolean(pairId || (placeholder?.trim() && !/(exempt|bye)/i.test(placeholder)));
-
   return (
     hasParticipant(match.pair1Id, match.pair1Placeholder) ||
     hasParticipant(match.pair2Id, match.pair2Placeholder)
   );
 }
 
-export function isConsolanteMatchSchedulable(
+export function isMatchPlayable(
   match: Pick<Match, 'pair1Id' | 'pair1Placeholder' | 'pair2Id' | 'pair2Placeholder'>
 ): boolean {
-  const hasParticipant = (pairId?: string, placeholder?: string) =>
-    Boolean(pairId || (placeholder?.trim() && !/(exempt|bye)/i.test(placeholder)));
-
   return (
     hasParticipant(match.pair1Id, match.pair1Placeholder) &&
     hasParticipant(match.pair2Id, match.pair2Placeholder)
   );
 }
+
+export const isConsolanteMatchSchedulable = isMatchPlayable;
 
 export function compactConsolanteLoserSlots(
   bracketMatches: Match[],
@@ -51,11 +55,11 @@ export function compactConsolanteLoserSlots(
   let updatedConsolante = consolanteMatches;
 
   for (const { sources, targets } of groups.values()) {
-    if (!sources.some(source => !isMatchSchedulable(source))) continue;
+    if (!sources.some(source => !isMatchPlayable(source))) continue;
 
     const orderedSources = [...sources].sort((a, b) => a.matchNumber - b.matchNumber);
     const orderedTargets = [...targets].sort((a, b) => a.matchNumber - b.matchNumber);
-    const playableSources = orderedSources.filter(isMatchSchedulable);
+    const playableSources = orderedSources.filter(isMatchPlayable);
     if (playableSources.length > orderedTargets.length * 2) continue;
     if (orderedTargets.some(target => target.status === 'completed' || target.status === 'in_progress')) {
       continue;
@@ -133,9 +137,12 @@ export function createConflictFreeSchedule(
   const pairLastSlot = new Map<string, number>();
   const pairMatchCount = new Map<string, number>();
 
-  const scheduleStage = (stageMatches: Match[]) => {
+  const scheduleStage = (
+    stageMatches: Match[],
+    canSchedule: (match: Match) => boolean = isMatchSchedulable
+  ) => {
     const pending = stageMatches
-      .filter(isMatchSchedulable)
+      .filter(canSchedule)
       .sort((a, b) => a.matchNumber - b.matchNumber);
     while (pending.length > 0) {
       const usedPairs = new Set<string>();
@@ -216,12 +223,14 @@ export function createConflictFreeSchedule(
     .sort((a, b) => a - b);
   for (const round of knockoutRounds) {
     scheduleStage(
-      bracketMatches.filter(match => (match.bracketRound ?? 1) === round)
+      bracketMatches.filter(match => (match.bracketRound ?? 1) === round),
+      isMatchPlayable
     );
     scheduleStage(
       consolanteMatches
         .filter(match => (match.bracketRound ?? 1) === round)
-        .filter(isConsolanteMatchSchedulable)
+        .filter(isMatchPlayable),
+      isMatchPlayable
     );
   }
 

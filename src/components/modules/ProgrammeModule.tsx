@@ -4,7 +4,7 @@ import { formatScore } from '../../utils/padelCalculations';
 import {
   compactConsolanteLoserSlots,
   createConflictFreeSchedule,
-  isConsolanteMatchSchedulable,
+  isMatchPlayable,
   isMatchSchedulable,
 } from '../../utils/padelSchedule';
 import {
@@ -94,24 +94,22 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
 
   // Hide consolation fixtures that do not have two playable participants.
   const visibleConsolanteMatches = useMemo(
-    () =>
-      compactedConsolante.consolanteMatches.filter(
-        match =>
-          match.status === 'completed' ||
-          match.status === 'in_progress' ||
-          isConsolanteMatchSchedulable(match)
-      ),
+    () => compactedConsolante.consolanteMatches.filter(isMatchPlayable),
     [compactedConsolante.consolanteMatches]
+  );
+  const visibleBracketMatches = useMemo(
+    () => compactedConsolante.bracketMatches.filter(isMatchPlayable),
+    [compactedConsolante.bracketMatches]
   );
 
   // All matches currently relevant to the programme grid and assignment dialog.
   const allMatches: Match[] = useMemo(() => {
     return [
       ...tournament.pools.flatMap(pool => pool.matches),
-      ...compactedConsolante.bracketMatches,
+      ...visibleBracketMatches,
       ...visibleConsolanteMatches,
     ];
-  }, [tournament.pools, compactedConsolante.bracketMatches, visibleConsolanteMatches]);
+  }, [tournament.pools, visibleBracketMatches, visibleConsolanteMatches]);
 
   // Compute time slots based on slot duration in minutes
   const timeSlots = useMemo(() => {
@@ -126,10 +124,10 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   }, [startTime, slotDuration, allMatches]);
 
   // Matches not yet scheduled with time or court
-  const schedulableConsolanteMatches = visibleConsolanteMatches.filter(isConsolanteMatchSchedulable);
   const schedulableProgrammeMatches = [
-    ...allMatches.filter(match => match.type !== 'consolante' && isMatchSchedulable(match)),
-    ...schedulableConsolanteMatches,
+    ...tournament.pools.flatMap(pool => pool.matches).filter(isMatchSchedulable),
+    ...visibleBracketMatches.filter(isMatchPlayable),
+    ...visibleConsolanteMatches.filter(isMatchPlayable),
   ];
   const unscheduledMatches = schedulableProgrammeMatches.filter(m => !m.scheduledTime || !m.courtId);
 
@@ -501,10 +499,10 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       ...pool,
       matches: applySchedule(pool.matches),
     }));
-    const updatedBracket = applySchedule(compactedConsolante.bracketMatches);
+    const updatedBracket = applySchedule(compactedConsolante.bracketMatches, isMatchPlayable);
     const updatedConsolante = applySchedule(
       compactedConsolante.consolanteMatches,
-      isConsolanteMatchSchedulable
+      isMatchPlayable
     );
 
     onUpdateTournament({
