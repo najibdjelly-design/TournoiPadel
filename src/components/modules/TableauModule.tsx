@@ -91,18 +91,6 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     [tournament.bracketMatches, tournament.consolanteMatches]
   );
 
-  // Detect current main bracket capacity from existing matches
-  const mainBracketCapacity = useMemo<number>(() => {
-    if (tournament.bracketSize) return tournament.bracketSize;
-    const r1Count = tournament.bracketMatches.filter(
-      (m) => (m.bracketRound || 1) === 1
-    ).length;
-    if (r1Count >= 8) return 24; // 8 matches in R1 + 8 Byes in R2 = 24 teams
-    if (r1Count >= 4) return 8;
-    if (r1Count >= 2) return 4;
-    return tournament.maxPairs || 24;
-  }, [tournament.bracketMatches, tournament.bracketSize, tournament.maxPairs]);
-
   // Generate full tournament with automatic matching classification matches (1 to N)
   const handleGenerateFullTournament = (size: 4 | 8 | 16 | 24 | 32 = bracketSize) => {
     const configuredEntrants = Math.min(entrantCount, size);
@@ -113,9 +101,19 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     }
     const sortedPairs = [...confirmed]
       .sort((a, b) => a.totalWeight - b.totalWeight)
-      .slice(0, configuredEntrants)
-      .map((pair, index) => ({ ...pair, seedRank: index + 1 }));
-    const rankedPairsById = new Map(sortedPairs.map((pair) => [pair.id, pair]));
+      .slice(0, configuredEntrants);
+    const seedCount =
+      size === 24 && configuredEntrants > 16
+        ? 8
+        : Math.min(
+            Math.floor(configuredEntrants / 2),
+            Math.max(2, Math.floor(configuredEntrants / 4))
+          );
+    const seededPairs = sortedPairs.map((pair, index) => ({
+      ...pair,
+      seedRank: index < seedCount ? index + 1 : undefined,
+    }));
+    const rankedPairsById = new Map(seededPairs.map((pair) => [pair.id, pair]));
     const { bracketMatches: generatedMainMatches, consolanteMatches: generatedConsolanteMatches } =
       generateFullClassificationTournament(tournament.id, size, configuredEntrants);
     let newMainMatches = generatedMainMatches;
@@ -131,7 +129,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       const activeR2Indexes = [0, 2, 4, 6];
       const firstRoundSeedOrder = buildSeedOrder(8);
       const eighthFinalSeedOrder = [1, 4, 2, 3];
-      const quarterFinalSeedOrder = [2, 4, 3, 1];
+      const quarterFinalSeedOrder = [1, 4, 3, 2];
 
       r1Matches.forEach((match, index) => {
         match.nextMatchId = undefined;
@@ -151,27 +149,6 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
             match.loserNextMatchId = classificationQuarters[index].id;
             match.loserNextMatchSlot = 'pair1';
           }
-        } else if (size === 24) {
-          const directEntries = sortedPairs.slice(0, 8);
-          const firstRoundEntries = sortedPairs.slice(8);
-          const r1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
-          const r2Matches = newMainMatches.filter((m) => m.bracketRound === 2);
-
-          r1Matches.forEach((match, index) => {
-            const firstEntry = firstRoundEntries[index * 2];
-            const secondEntry = firstRoundEntries[index * 2 + 1];
-            match.pair1Id = firstEntry?.id;
-            match.pair2Id = secondEntry?.id;
-            match.pair1Placeholder = firstEntry ? undefined : 'Bye';
-            match.pair2Placeholder = secondEntry ? undefined : 'Bye';
-          });
-
-          r2Matches.forEach((match, index) => {
-            const seedRank = buildSeedOrder(8)[index];
-            const directEntry = directEntries[seedRank - 1];
-            match.pair1Id = directEntry?.id;
-            if (!directEntry) match.pair1Placeholder = 'Bye';
-          });
         } else {
           match.pair1Id = undefined;
           match.pair2Id = undefined;
@@ -212,6 +189,27 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
         match.pair1Placeholder = undefined;
         match.pair2Id = undefined;
         match.pair2Placeholder = `Vainqueur 1/8e #${index + 1}`;
+      });
+    } else if (size === 24) {
+      const directEntries = sortedPairs.slice(0, 8);
+      const firstRoundEntries = sortedPairs.slice(8);
+      const r1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
+      const r2Matches = newMainMatches.filter((m) => m.bracketRound === 2);
+
+      r1Matches.forEach((match, index) => {
+        const firstEntry = firstRoundEntries[index * 2];
+        const secondEntry = firstRoundEntries[index * 2 + 1];
+        match.pair1Id = firstEntry?.id;
+        match.pair2Id = secondEntry?.id;
+        match.pair1Placeholder = firstEntry ? undefined : 'Bye';
+        match.pair2Placeholder = secondEntry ? undefined : 'Bye';
+      });
+
+      r2Matches.forEach((match, index) => {
+        const seedRank = buildSeedOrder(8)[index];
+        const directEntry = directEntries[seedRank - 1];
+        match.pair1Id = directEntry?.id;
+        if (!directEntry) match.pair1Placeholder = 'Bye';
       });
     } else {
       const round1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
@@ -280,7 +278,14 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
     onUpdateTournament({
       ...tournament,
-      pairs: tournament.pairs.map((pair) => rankedPairsById.get(pair.id) ?? pair),
+      pairs: tournament.pairs.map((pair) => {
+        const seededPair = rankedPairsById.get(pair.id);
+        if (seededPair) return seededPair;
+        if (pair.status === 'confirmed' && pair.seedRank) {
+          return { ...pair, seedRank: undefined };
+        }
+        return pair;
+      }),
       bracketSize: size,
       bracketEntrantCount: configuredEntrants,
       bracketMatches: newMainMatches,
@@ -503,7 +508,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
           <h1 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <span>Tableau Final & Consolantes</span>
             <span className="px-2 py-0.5 text-xs font-bold bg-emerald-100 text-emerald-800 rounded-full">
-              Classement 1 à {mainBracketCapacity}
+              Classement 1 à {entrantCount}
             </span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
