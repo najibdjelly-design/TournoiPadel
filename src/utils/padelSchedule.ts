@@ -331,6 +331,19 @@ export function createConflictFreeSchedule(
   const startMs = scheduleStart.getTime();
   const nowMs = options.currentTime?.getTime();
   const slotKey = (matchId: string, slot: 'pair1' | 'pair2') => `${matchId}:${slot}`;
+  const scheduledStart = (match: Match): number | undefined => {
+    if (!match.courtId || !match.scheduledTime || !courtAvailableAt.has(match.courtId)) {
+      return undefined;
+    }
+    const storedTime = match.scheduledAt ? Date.parse(match.scheduledAt) : NaN;
+    if (Number.isFinite(storedTime)) return storedTime;
+    const minutes = parseTime(match.scheduledTime);
+    if (minutes === null) return undefined;
+    const date = new Date(scheduleStart);
+    date.setHours(0, 0, 0, 0);
+    date.setMinutes(minutes);
+    return date.getTime();
+  };
 
   const setParticipant = (
     matchId: string,
@@ -347,6 +360,24 @@ export function createConflictFreeSchedule(
   };
 
   for (const match of allMatches) {
+    const fixedStart = scheduledStart(match);
+    if (
+      fixedStart !== undefined &&
+      match.status !== 'completed' &&
+      match.status !== 'walkover' &&
+      match.status !== 'in_progress' &&
+      match.status !== 'warmup'
+    ) {
+      const fixedEnd = fixedStart + (match.durationMinutes ?? slotDuration) * 60_000;
+      courtAvailableAt.set(
+        match.courtId!,
+        Math.max(courtAvailableAt.get(match.courtId!) ?? startMs, fixedEnd)
+      );
+      for (const pairId of [match.pair1Id, match.pair2Id]) {
+        if (pairId) pairAvailableAt.set(pairId, Math.max(pairAvailableAt.get(pairId) ?? startMs, fixedEnd));
+      }
+    }
+
     for (const slot of ['pair1', 'pair2'] as const) {
       const pairId = match[`${slot}Id`];
       const placeholder = match[`${slot}Placeholder`];
@@ -386,6 +417,7 @@ export function createConflictFreeSchedule(
   }
 
   const pending = allMatches.filter(match =>
+    !scheduledStart(match) &&
     match.status !== 'completed' &&
     match.status !== 'walkover' &&
     match.status !== 'in_progress' &&
@@ -426,6 +458,26 @@ export function createConflictFreeSchedule(
       propagateOutcome(match, 'winner', match.nextMatchId, match.nextMatchSlot, availableAt, false);
       propagateOutcome(match, 'loser', match.loserNextMatchId, match.loserNextMatchSlot, availableAt, false);
     }
+  }
+
+  const fixedMatches = allMatches
+    .map(match => ({ match, start: scheduledStart(match) }))
+    .filter((item): item is { match: Match; start: number } =>
+      item.start !== undefined &&
+      item.match.status !== 'completed' &&
+      item.match.status !== 'walkover' &&
+      item.match.status !== 'in_progress' &&
+      item.match.status !== 'warmup'
+    )
+    .sort((a, b) => a.start - b.start);
+  for (const { match, start } of fixedMatches) {
+    if (
+      !participantBySlot.has(slotKey(match.id, 'pair1')) ||
+      !participantBySlot.has(slotKey(match.id, 'pair2'))
+    ) continue;
+    const availableAt = start + (match.durationMinutes ?? slotDuration) * 60_000;
+    propagateOutcome(match, 'winner', match.nextMatchId, match.nextMatchSlot, availableAt, true);
+    propagateOutcome(match, 'loser', match.loserNextMatchId, match.loserNextMatchSlot, availableAt, true);
   }
 
   while (pending.length > 0) {
@@ -507,17 +559,6 @@ export function applyScheduleAssignments(
         scheduledAt: assignment.scheduledAt,
       };
     }
-    if (
-      match.status === 'completed' ||
-      match.status === 'walkover' ||
-      match.status === 'in_progress' ||
-      match.status === 'warmup'
-    ) return match;
-    return {
-      ...match,
-      courtId: undefined,
-      scheduledTime: undefined,
-      scheduledAt: undefined,
-    };
+    return match;
   });
 }

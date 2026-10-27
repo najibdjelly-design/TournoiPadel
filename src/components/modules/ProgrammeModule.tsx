@@ -551,13 +551,20 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       consolanteMatches: updatedConsolante,
     });
 
-    const totalScheduled = scheduledMatches.size;
-    const endTime = [...scheduledMatches.values()].reduce((latest, assignment) => {
-      const minutes = timeToMinutes(assignment.time) ?? -1;
-      return minutes > latest.minutes ? { time: assignment.time, minutes } : latest;
+    const allScheduledAfterUpdate = [
+      ...updatedPools.flatMap(pool => pool.matches),
+      ...updatedBracket,
+      ...updatedConsolante,
+    ].filter(match => match.scheduledTime && match.courtId);
+    const totalScheduled = allScheduledAfterUpdate.length;
+    const endTime = allScheduledAfterUpdate.reduce((latest, match) => {
+      const minutes = timeToMinutes(match.scheduledTime!) ?? -1;
+      return minutes > latest.minutes
+        ? { time: match.scheduledTime!, minutes }
+        : latest;
     }, { time: startTime, minutes: timeToMinutes(startTime) ?? 0 }).time;
     setOptimizationReport(totalScheduled > 0
-      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Aucun joueur n’est programmé en même temps sur deux terrains.`
+      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Les créneaux existants ont été conservés.`
       : 'Aucun match ne peut encore être programmé : il faut que les deux paires soient connues pour chaque rencontre.'
     );
     setShowOptimizerPanel(true);
