@@ -1800,19 +1800,17 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                         {roundMatches.length} match(s)
                       </span>
                     </div>
-                    {tournament.consolanteMatches.length > 0 &&
-                      tournament.bracketMatches.some(match =>
-                        (match.bracketRound ?? 1) === roundNum && Boolean(match.loserNextMatchId)
-                      ) && (
-                        <button
-                          type="button"
-                          onClick={() => openRoundClassification(roundNum)}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1.5 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100"
-                          title={`Voir les matchs de classement du tour ${roundLabel}`}
-                        >
-                          Classement · {roundLabel} <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                    {tournament.consolanteMatches.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openRoundClassification(roundNum)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1.5 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100"
+                        title={`Voir les matchs de classement du tour ${roundLabel}`}
+                        aria-label={`Voir le classement du tour ${roundLabel}`}
+                      >
+                        Classement · {roundLabel} <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </header>
                   <div className="flex flex-1 flex-col gap-3">
                     {roundMatches.map(match => {
