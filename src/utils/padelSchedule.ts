@@ -1,4 +1,4 @@
-import type { Court, Match, Pool } from '../types/tournament';
+import type { Court, Match, Pair, Pool } from '../types/tournament';
 
 export interface ScheduleAssignment {
   courtId: string;
@@ -194,6 +194,179 @@ export function isMatchPlayable(
 }
 
 export const isConsolanteMatchSchedulable = isMatchPlayable;
+
+function getOutcomeReference(
+  target: Match,
+  slot: 'pair1' | 'pair2',
+  bracketMatches: Match[]
+): { pairId?: string; placeholder?: string } | undefined {
+  const placeholder = target[`${slot}Placeholder`] ?? '';
+  const sourceMatchId = target[`${slot}SourceMatchId`];
+  const sourceOutcome = target[`${slot}SourceOutcome`];
+  const isLoserReference = sourceOutcome
+    ? sourceOutcome === 'loser'
+    : /^perdant\b/i.test(placeholder);
+  if (!/^(?:vainqueur|perdant)\b/i.test(placeholder)) return undefined;
+
+  const getScoreWinnerSlot = (match: Match): 'pair1' | 'pair2' | undefined => {
+    const setWins = match.score?.sets.reduce(
+      (wins, set) => {
+        if (set.pair1 > set.pair2) wins.pair1 += 1;
+        if (set.pair2 > set.pair1) wins.pair2 += 1;
+        return wins;
+      },
+      { pair1: 0, pair2: 0 }
+    );
+    if (!setWins || setWins.pair1 === setWins.pair2) return undefined;
+    return setWins.pair1 > setWins.pair2 ? 'pair1' : 'pair2';
+  };
+  const getWinnerSlot = (match: Match) => {
+    const winnerPairId = match.winnerPairId || match.score?.winnerPairId;
+    if (winnerPairId && winnerPairId === match.pair1Id) return 'pair1';
+    if (winnerPairId && winnerPairId === match.pair2Id) return 'pair2';
+    return getScoreWinnerSlot(match);
+  };
+
+  const explicitReference = placeholder.match(/(?:Match\s*#|M#)\s*(\d+)\b/i);
+  let sourceMatch = sourceMatchId
+    ? bracketMatches.find(match => match.id === sourceMatchId)
+    : explicitReference
+    ? bracketMatches
+        .filter(
+          match =>
+            match.type !== 'consolante' &&
+            Number(match.matchNumber) === Number(explicitReference[1])
+        )
+        .find(
+          match =>
+            (match.status === 'completed' || match.status === 'walkover') &&
+            getWinnerSlot(match)
+        )
+    : undefined;
+
+  if (sourceMatchId && !sourceMatch) return undefined;
+
+  if (!sourceMatchId && sourceMatch?.nextMatchId === target.id && sourceMatch.nextMatchSlot !== slot) {
+    const routedSource = bracketMatches.find(
+      match => match.nextMatchId === target.id && match.nextMatchSlot === slot
+    );
+    if (routedSource) sourceMatch = routedSource;
+  }
+
+  if (!sourceMatchId && isLoserReference && sourceMatch?.loserNextMatchId === target.id) {
+    const routedLoserSource = bracketMatches.find(
+      match => match.loserNextMatchId === target.id && match.loserNextMatchSlot === slot
+    );
+    if (routedLoserSource) sourceMatch = routedLoserSource;
+  }
+
+  if (!sourceMatch && /vainqueur du tour précédent/i.test(placeholder)) {
+    sourceMatch = bracketMatches.find(
+      match => match.nextMatchId === target.id && match.nextMatchSlot === slot
+    );
+
+    if (!sourceMatch) {
+      const previousRound = (target.bracketRound ?? 1) - 1;
+      const previousRoundMatches = bracketMatches
+        .filter(match => (match.bracketRound ?? 1) === previousRound)
+        .sort((a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0));
+      const sourceIndex =
+        (target.bracketSlotIndex ?? 0) * 2 + (slot === 'pair1' ? 0 : 1);
+      sourceMatch = previousRoundMatches[sourceIndex];
+    }
+  }
+
+  if (
+    !sourceMatch ||
+    (sourceMatch.status !== 'completed' && sourceMatch.status !== 'walkover')
+  ) {
+    return undefined;
+  }
+
+  const winnerSlot = getWinnerSlot(sourceMatch);
+  if (!winnerSlot) return undefined;
+  const outcomeSlot = isLoserReference
+    ? winnerSlot === 'pair1' ? 'pair2' : 'pair1'
+    : winnerSlot;
+  return {
+    pairId: sourceMatch[`${outcomeSlot}Id`] || undefined,
+    placeholder: sourceMatch[`${outcomeSlot}Placeholder`] || undefined,
+  };
+}
+
+export function resolveMatchOutcomePlaceholder(
+  target: Match,
+  slot: 'pair1' | 'pair2',
+  bracketMatches: Match[]
+): string | undefined {
+  const outcome = getOutcomeReference(target, slot, bracketMatches);
+  return outcome?.pairId ? undefined : outcome?.placeholder;
+}
+
+export function resolveMatchOutcomeReferences(
+  bracketMatches: Match[],
+  consolanteMatches: Match[],
+  pairs: Pair[] = []
+): { bracketMatches: Match[]; consolanteMatches: Match[] } {
+  const pairIdByLabel = new Map(
+    pairs.map(pair => [
+      `${pair.player1.firstName} ${pair.player1.lastName} / ${pair.player2.firstName} ${pair.player2.lastName}`
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLocaleLowerCase(),
+      pair.id,
+    ])
+  );
+  const findPairId = (pairId?: string, label?: string) =>
+    pairId ||
+    (label
+      ? pairIdByLabel.get(label.replace(/\s+/g, ' ').trim().toLocaleLowerCase())
+      : undefined);
+
+  const resolveMatches = (matches: Match[]) =>
+    matches.map(match => {
+      const pair1Outcome = getOutcomeReference(match, 'pair1', bracketMatches);
+      const pair2Outcome = getOutcomeReference(match, 'pair2', bracketMatches);
+      const slotHasOutcomePlaceholder = (slot: 'pair1' | 'pair2') =>
+        Boolean(match[`${slot}SourceMatchId`]) ||
+        /^(?:vainqueur|perdant)\b/i.test(match[`${slot}Placeholder`] ?? '');
+
+      const resolveSlot = (
+        slot: 'pair1' | 'pair2',
+        currentPairId: string | undefined,
+        outcome: { pairId?: string; placeholder?: string } | undefined
+      ) => {
+        const routedPairId = findPairId(outcome?.pairId, outcome?.placeholder);
+
+        if (slotHasOutcomePlaceholder(slot)) {
+          return routedPairId ?? currentPairId;
+        }
+
+        if (currentPairId) return currentPairId;
+        return routedPairId ?? currentPairId;
+      };
+
+      const resolvedPair1Id = resolveSlot('pair1', match.pair1Id, pair1Outcome);
+      const resolvedPair2Id = resolveSlot('pair2', match.pair2Id, pair2Outcome);
+      if (
+        resolvedPair1Id === match.pair1Id &&
+        resolvedPair2Id === match.pair2Id
+      ) {
+        return match;
+      }
+
+      return {
+        ...match,
+        pair1Id: resolvedPair1Id,
+        pair2Id: resolvedPair2Id,
+      };
+    });
+
+  return {
+    bracketMatches: resolveMatches(bracketMatches),
+    consolanteMatches: resolveMatches(consolanteMatches),
+  };
+}
 
 export function compactConsolanteLoserSlots(
   bracketMatches: Match[],

@@ -25,8 +25,38 @@ import {
   Filter,
   ArrowLeft,
   ChevronRight,
+  Plus,
+  GripVertical,
 } from 'lucide-react';
-import { compactConsolanteLoserSlots, resolveBracketByes } from '../../utils/padelSchedule';
+import {
+  compactConsolanteLoserSlots,
+  resolveBracketByes,
+  resolveMatchOutcomeReferences,
+  resolveMatchOutcomePlaceholder,
+} from '../../utils/padelSchedule';
+
+const CUSTOM_CLASSIFICATION_COHORT_SIZES = [2, 4, 8, 16, 24, 32] as const;
+
+function findCustomFinalPlacement(
+  orderedRounds: Array<[number, Match[]]>
+): { championshipMatch: Match; thirdPlaceMatch: Match; semifinalRound: number } | undefined {
+  const finalRound = orderedRounds.at(-1)?.[1];
+  const semifinalRound = orderedRounds.at(-2);
+  if (finalRound?.length !== 2 || semifinalRound?.[1].length !== 2) return undefined;
+
+  const championshipMatch = finalRound.find(match =>
+    match.targetRankWinner === 1 ||
+    [match.pair1Placeholder, match.pair2Placeholder].some(placeholder => /vainqueur/i.test(placeholder ?? ''))
+  );
+  const thirdPlaceMatch = finalRound.find(match =>
+    match.targetRankWinner === 3 ||
+    [match.pair1Placeholder, match.pair2Placeholder].some(placeholder => /perdant/i.test(placeholder ?? ''))
+  );
+  if (!championshipMatch || !thirdPlaceMatch || championshipMatch.id === thirdPlaceMatch.id) {
+    return undefined;
+  }
+  return { championshipMatch, thirdPlaceMatch, semifinalRound: semifinalRound[0] };
+}
 
 interface TableauModuleProps {
   tournament: Tournament;
@@ -40,6 +70,393 @@ function buildSeedOrder(size: number): number[] {
     order = order.flatMap(seed => [seed, bracketSize * 2 + 1 - seed]);
   }
   return order;
+}
+
+function connectAdjacentBracketMatches(matches: Match[]): Match[] {
+  const matchesWithStableReferences = matches.map(match => {
+    const stableMatch = { ...match };
+    for (const slot of ['pair1', 'pair2'] as const) {
+      if (stableMatch[`${slot}SourceMatchId`]) continue;
+      const placeholder = stableMatch[`${slot}Placeholder`] ?? '';
+      const reference = placeholder.match(
+        /^(Vainqueur|Perdant)\s+(?:Match\s*#|M#)\s*(\d+)\b/i
+      );
+      if (!reference) continue;
+      const source = matches.find(candidate =>
+        candidate.type !== 'consolante' &&
+        candidate.matchNumber === Number(reference[2])
+      );
+      if (!source) continue;
+      stableMatch[`${slot}SourceMatchId`] = source.id;
+      stableMatch[`${slot}SourceOutcome`] =
+        reference[1].toLowerCase() === 'perdant' ? 'loser' : 'winner';
+    }
+    return stableMatch;
+  });
+  const rounds = new Map<number, Match[]>();
+  for (const match of matchesWithStableReferences) {
+    const round = match.bracketRound ?? 1;
+    const roundMatches = rounds.get(round) ?? [];
+    roundMatches.push(match);
+    rounds.set(round, roundMatches);
+  }
+
+  const sortedRounds = [...rounds.entries()].sort(([a], [b]) => a - b);
+  const roundNumberByOriginal = new Map(
+    sortedRounds.map(([round], index) => [round, index + 1])
+  );
+  const normalizedMatches = matchesWithStableReferences.map(match => ({
+    ...match,
+    bracketRound: roundNumberByOriginal.get(match.bracketRound ?? 1) ?? 1,
+  }));
+  const normalizedRounds = new Map<number, Match[]>();
+  for (const match of normalizedMatches) {
+    const roundMatches = normalizedRounds.get(match.bracketRound ?? 1) ?? [];
+    roundMatches.push(match);
+    normalizedRounds.set(match.bracketRound ?? 1, roundMatches);
+  }
+
+  const orderedRounds = new Map(
+    [...normalizedRounds].map(([round, roundMatches]) => [
+      round,
+      roundMatches.sort((a, b) =>
+        (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0)
+      ),
+    ])
+  );
+  const orderedRoundEntries = [...orderedRounds.entries()].sort(([a], [b]) => a - b);
+  const parallelFinalPlacement = findCustomFinalPlacement(orderedRoundEntries);
+  const sequentialFinalPlacement =
+    orderedRoundEntries.length >= 3 &&
+    orderedRoundEntries.at(-3)?.[1].length === 2 &&
+    orderedRoundEntries.at(-2)?.[1].length === 1 &&
+    orderedRoundEntries.at(-1)?.[1].length === 1;
+  const hasThirdPlaceMatch = Boolean(parallelFinalPlacement || sequentialFinalPlacement);
+  const semifinalRound = parallelFinalPlacement?.semifinalRound ??
+    (sequentialFinalPlacement ? orderedRoundEntries.at(-3)?.[0] : undefined);
+  const thirdPlaceMatch = parallelFinalPlacement?.thirdPlaceMatch ??
+    (sequentialFinalPlacement ? orderedRoundEntries.at(-2)?.[1][0] : undefined);
+  const championshipMatch = parallelFinalPlacement?.championshipMatch ??
+    (sequentialFinalPlacement ? orderedRoundEntries.at(-1)?.[1][0] : undefined);
+  const matchNumbers = new Map<string, number>();
+  let matchNumber = 1;
+  for (const roundMatches of orderedRoundEntries.map(([, list]) => list)) {
+    for (const match of roundMatches) matchNumbers.set(match.id, matchNumber++);
+  }
+
+  const selectedWinnerRoutes = new Map<string, { targetId: string; slot: 'pair1' | 'pair2' }>();
+  const selectedLoserRoutes = new Map<string, { targetId: string; slot: 'pair1' | 'pair2' }>();
+  for (const target of normalizedMatches) {
+    for (const slot of ['pair1', 'pair2'] as const) {
+      const sourceId = target[`${slot}SourceMatchId`];
+      const outcome = target[`${slot}SourceOutcome`];
+      if (!sourceId || !outcome) continue;
+      const routes = outcome === 'winner' ? selectedWinnerRoutes : selectedLoserRoutes;
+      routes.set(sourceId, { targetId: target.id, slot });
+    }
+  }
+
+  const updatedMatches = normalizedMatches.map(match => {
+    const round = match.bracketRound ?? 1;
+    const roundMatches = orderedRounds.get(round) ?? [];
+    const index = roundMatches.findIndex(item => item.id === match.id);
+    const nextRound = orderedRounds.get(round + 1);
+    const isSemifinal = hasThirdPlaceMatch && round === semifinalRound;
+    const isThirdPlaceMatch = sequentialFinalPlacement
+      ? round === orderedRoundEntries.at(-2)?.[0]
+      : parallelFinalPlacement?.thirdPlaceMatch.id === match.id;
+    const nextMatch = isSemifinal
+      ? championshipMatch
+      : isThirdPlaceMatch ? undefined
+      : index >= 0 ? nextRound?.[Math.floor(index / 2)] : undefined;
+    const nextMatchSlot: 'pair1' | 'pair2' = index % 2 === 0 ? 'pair1' : 'pair2';
+    const selectedWinnerRoute = selectedWinnerRoutes.get(match.id);
+    const selectedLoserRoute = selectedLoserRoutes.get(match.id);
+    return {
+      ...match,
+      matchNumber: matchNumbers.get(match.id) ?? match.matchNumber,
+      roundName: `Tour ${round} (#${index + 1})`,
+      bracketSlotIndex: index,
+      nextMatchId: selectedWinnerRoute?.targetId ?? nextMatch?.id,
+      nextMatchSlot: selectedWinnerRoute?.slot ?? (nextMatch ? nextMatchSlot : undefined),
+      loserNextMatchId: selectedLoserRoute?.targetId ??
+        (isSemifinal ? thirdPlaceMatch?.id : match.loserNextMatchId),
+      loserNextMatchSlot: selectedLoserRoute?.slot ??
+        (isSemifinal ? nextMatchSlot : match.loserNextMatchSlot),
+    };
+  });
+  const matchById = new Map(updatedMatches.map(match => [match.id, match]));
+
+  for (const target of updatedMatches) {
+    for (const slot of ['pair1', 'pair2'] as const) {
+      const sourceId = target[`${slot}SourceMatchId`];
+      const outcome = target[`${slot}SourceOutcome`];
+      const source = sourceId ? matchById.get(sourceId) : undefined;
+      if (source && outcome) {
+        target[`${slot}Placeholder`] =
+          `${outcome === 'winner' ? 'Vainqueur' : 'Perdant'} Match #${source.matchNumber}`;
+      }
+    }
+  }
+
+  for (const source of updatedMatches) {
+    if (hasThirdPlaceMatch && source.bracketRound === semifinalRound && source.loserNextMatchSlot) {
+      const placementMatch = matchById.get(source.loserNextMatchId ?? '');
+      if (placementMatch && !placementMatch[`${source.loserNextMatchSlot}Id`]) {
+        placementMatch[`${source.loserNextMatchSlot}Placeholder`] =
+          `Perdant M#${source.matchNumber}`;
+      }
+    }
+    if (!source.nextMatchId || !source.nextMatchSlot) continue;
+    const target = matchById.get(source.nextMatchId);
+    if (!target || target.status !== 'scheduled') continue;
+    const placeholder = `Vainqueur M#${source.matchNumber}`;
+    if (source.nextMatchSlot === 'pair1' && !target.pair1Id) {
+      target.pair1Placeholder = placeholder;
+    } else if (source.nextMatchSlot === 'pair2' && !target.pair2Id) {
+      target.pair2Placeholder = placeholder;
+    }
+  }
+
+  return updatedMatches;
+}
+
+function buildCustomConsolationMatches(
+  tournamentId: string,
+  bracketMatches: Match[],
+  entrantCount: number
+): { bracketMatches: Match[]; consolanteMatches: Match[] } | null {
+  const rounds = new Map<number, Match[]>();
+  for (const match of bracketMatches) {
+    const round = match.bracketRound ?? 1;
+    const matches = rounds.get(round) ?? [];
+    matches.push(match);
+    rounds.set(round, matches);
+  }
+  const orderedRounds = [...rounds.entries()].sort(([a], [b]) => a - b);
+  const parallelFinalPlacement = findCustomFinalPlacement(orderedRounds);
+  if (
+    !orderedRounds.length ||
+    (orderedRounds.at(-1)?.[1].length !== 1 && !parallelFinalPlacement)
+  ) return null;
+
+  const sequentialFinalPlacement =
+    orderedRounds.length >= 3 &&
+    orderedRounds.at(-3)?.[1].length === 2 &&
+    orderedRounds.at(-2)?.[1].length === 1 &&
+    orderedRounds.at(-1)?.[1].length === 1;
+  const hasThirdPlaceMatch = Boolean(parallelFinalPlacement || sequentialFinalPlacement);
+  const expectedMatchCount = Math.max(0, entrantCount - 1) + (hasThirdPlaceMatch ? 1 : 0);
+  if (bracketMatches.length !== expectedMatchCount) return null;
+
+  let earlierEliminated = 0;
+  const consolationMatches: Match[] = [];
+  const updatedBracket = bracketMatches.map(match => ({ ...match }));
+  let nextMatchNumber = updatedBracket.length + 1;
+
+  for (const [roundIndex, [, sourceRound]] of orderedRounds.entries()) {
+    if (parallelFinalPlacement && roundIndex === orderedRounds.length - 1) {
+      for (const match of sourceRound) {
+        const index = updatedBracket.findIndex(item => item.id === match.id);
+        const isChampionship = match.id === parallelFinalPlacement.championshipMatch.id;
+        updatedBracket[index] = {
+          ...updatedBracket[index],
+          targetRankWinner: isChampionship ? 1 : 3,
+          targetRankLoser: isChampionship ? 2 : 4,
+          classificationRankRange: isChampionship ? '1-2' : '3-4',
+        };
+      }
+      continue;
+    }
+
+    if (roundIndex === orderedRounds.length - 1) {
+      for (const match of sourceRound) {
+        const index = updatedBracket.findIndex(item => item.id === match.id);
+        updatedBracket[index] = {
+          ...updatedBracket[index],
+          targetRankWinner: 1,
+          targetRankLoser: 2,
+          classificationRankRange: '1-2',
+        };
+      }
+      continue;
+    }
+
+    if (parallelFinalPlacement && roundIndex === orderedRounds.length - 2) {
+      const orderedSemifinals = [...sourceRound].sort(
+        (a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0)
+      );
+      orderedSemifinals.forEach((match, index) => {
+        const sourceIndex = updatedBracket.findIndex(item => item.id === match.id);
+        const targetSlot = index === 0 ? 'pair1' : 'pair2';
+        updatedBracket[sourceIndex] = {
+          ...updatedBracket[sourceIndex],
+          loserNextMatchId: parallelFinalPlacement.thirdPlaceMatch.id,
+          loserNextMatchSlot: targetSlot,
+        };
+      });
+      continue;
+    }
+
+    if (sequentialFinalPlacement && roundIndex === orderedRounds.length - 2) {
+      const match = sourceRound[0];
+      const index = updatedBracket.findIndex(item => item.id === match.id);
+      updatedBracket[index] = {
+        ...updatedBracket[index],
+        targetRankWinner: 3,
+        targetRankLoser: 4,
+        classificationRankRange: '3-4',
+      };
+      continue;
+    }
+
+    if (sequentialFinalPlacement && roundIndex === orderedRounds.length - 3) {
+      const placementMatch = orderedRounds[roundIndex + 1][1][0];
+      const orderedSemifinals = [...sourceRound].sort(
+        (a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0)
+      );
+      orderedSemifinals.forEach((match, index) => {
+        const sourceIndex = updatedBracket.findIndex(item => item.id === match.id);
+        const targetSlot = index === 0 ? 'pair1' : 'pair2';
+        updatedBracket[sourceIndex] = {
+          ...updatedBracket[sourceIndex],
+          loserNextMatchId: placementMatch.id,
+          loserNextMatchSlot: targetSlot,
+        };
+      });
+      continue;
+    }
+
+    const cohortSize = sourceRound.length;
+    if (!CUSTOM_CLASSIFICATION_COHORT_SIZES.some(size => size === cohortSize)) return null;
+    const lowestRank = entrantCount - earlierEliminated - cohortSize + 1;
+    const rankOffset = lowestRank - 1;
+    const orderedSources = [...sourceRound].sort(
+      (a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0)
+    );
+
+    if (cohortSize === 2) {
+      const timestamp = Date.now();
+      const classificationMatch: Match = {
+        id: `custom_class_r${roundIndex + 1}_${timestamp}`,
+        tournamentId,
+        type: 'consolante',
+        roundName: `Classement ${lowestRank}-${lowestRank + 1}`,
+        matchNumber: nextMatchNumber++,
+        bracketRound: 1,
+        bracketSlotIndex: 0,
+        status: 'scheduled',
+        pair1Placeholder: `Perdant M#${orderedSources[0].matchNumber}`,
+        pair2Placeholder: `Perdant M#${orderedSources[1].matchNumber}`,
+        classificationRankRange: `${lowestRank}-${lowestRank + 1}`,
+        targetRankWinner: lowestRank,
+        targetRankLoser: lowestRank + 1,
+      };
+      consolationMatches.push(classificationMatch);
+      orderedSources.forEach((source, index) => {
+        const sourceIndex = updatedBracket.findIndex(match => match.id === source.id);
+        const targetSlot = index === 0 ? 'pair1' : 'pair2';
+        updatedBracket[sourceIndex] = {
+          ...updatedBracket[sourceIndex],
+          loserNextMatchId: classificationMatch.id,
+          loserNextMatchSlot: targetSlot,
+        };
+        if (source.winnerPairId) {
+          classificationMatch[`${targetSlot}Id`] =
+            source.winnerPairId === source.pair1Id ? source.pair2Id : source.pair1Id;
+        }
+      });
+      earlierEliminated += cohortSize;
+      continue;
+    }
+
+    const size = cohortSize as 4 | 8 | 16 | 24 | 32;
+    const generated = generateFullClassificationTournament(tournamentId, size, size);
+    const generatedMatches = [...generated.bracketMatches, ...generated.consolanteMatches];
+    const idMap = new Map(
+      generatedMatches.map((match, index) => [
+        match.id,
+        `custom_class_r${roundIndex + 1}_${index}_${Date.now()}`,
+      ])
+    );
+    const mappedMatches = generatedMatches.map((match, index) => {
+      const adjustRange = (range?: string) => {
+        if (!range) return undefined;
+        const [from, to] = range.split('-').map(Number);
+        return Number.isFinite(from) && Number.isFinite(to)
+          ? `${from + rankOffset}-${to + rankOffset}`
+          : range;
+      };
+      return {
+        ...match,
+        id: idMap.get(match.id)!,
+        type: 'consolante' as const,
+        matchNumber: nextMatchNumber++,
+        roundName: `Classement ${adjustRange(match.classificationRankRange) ?? match.roundName}`,
+        classificationRankRange: adjustRange(match.classificationRankRange),
+        targetRankWinner: match.targetRankWinner === undefined
+          ? undefined
+          : match.targetRankWinner + rankOffset,
+        targetRankLoser: match.targetRankLoser === undefined
+          ? undefined
+          : match.targetRankLoser + rankOffset,
+        nextMatchId: match.nextMatchId ? idMap.get(match.nextMatchId) : undefined,
+        loserNextMatchId: match.loserNextMatchId ? idMap.get(match.loserNextMatchId) : undefined,
+        pair1Id: undefined,
+        pair2Id: undefined,
+        pair1Placeholder: match.pair1Placeholder,
+        pair2Placeholder: match.pair2Placeholder,
+      };
+    });
+
+    const firstRoundMatches = mappedMatches
+      .filter(match => match.bracketRound === 1 && generated.bracketMatches.some(
+        original => idMap.get(original.id) === match.id
+      ))
+      .sort((a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0));
+    const directEntrySlots = mappedMatches
+      .filter(match =>
+        match.bracketRound === 2 &&
+        match.pair1Placeholder?.toLowerCase().includes('exempt')
+      )
+      .sort((a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0));
+
+    const firstRoundCapacity = firstRoundMatches.length * 2;
+    orderedSources.forEach((source, index) => {
+      let target: Match | undefined;
+      let targetSlot: 'pair1' | 'pair2';
+      if (index < firstRoundCapacity) {
+        target = firstRoundMatches[Math.floor(index / 2)];
+        targetSlot = index % 2 === 0 ? 'pair1' : 'pair2';
+      } else {
+        target = directEntrySlots[index - firstRoundCapacity];
+        targetSlot = 'pair1';
+      }
+      if (!target) return;
+      const targetIndex = mappedMatches.findIndex(match => match.id === target.id);
+      mappedMatches[targetIndex] = {
+        ...mappedMatches[targetIndex],
+        [`${targetSlot}Placeholder`]: `Perdant M#${source.matchNumber}`,
+        [`${targetSlot}Id`]: source.winnerPairId
+          ? source.winnerPairId === source.pair1Id ? source.pair2Id : source.pair1Id
+          : undefined,
+      };
+      const sourceIndex = updatedBracket.findIndex(match => match.id === source.id);
+      updatedBracket[sourceIndex] = {
+        ...updatedBracket[sourceIndex],
+        loserNextMatchId: target.id,
+        loserNextMatchSlot: targetSlot,
+      };
+    });
+
+    consolationMatches.push(...mappedMatches);
+    earlierEliminated += cohortSize;
+  }
+
+  return {
+    bracketMatches: connectAdjacentBracketMatches(updatedBracket),
+    consolanteMatches: consolationMatches,
+  };
 }
 
 export const TableauModule: React.FC<TableauModuleProps> = ({
@@ -71,6 +488,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   const [slotPairSearch, setSlotPairSearch] = useState('');
   const [customPlaceholder, setCustomPlaceholder] = useState('');
   const [isClearTableauModalOpen, setIsClearTableauModalOpen] = useState(false);
+  const [draggedMatchId, setDraggedMatchId] = useState<string | null>(null);
 
   useEffect(() => {
     setBracketSize(tournament.bracketSize ?? 24);
@@ -82,13 +500,22 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map((p) => [p.id, p]));
   const confirmedPairsCount = tournament.pairs.filter((pair) => pair.status === 'confirmed').length;
+  const resolvedOutcomeMatches = useMemo(
+    () =>
+      resolveMatchOutcomeReferences(
+        tournament.bracketMatches,
+        tournament.consolanteMatches,
+        tournament.pairs
+      ),
+    [tournament.bracketMatches, tournament.consolanteMatches, tournament.pairs]
+  );
   const compactedConsolanteMatches = useMemo(
     () =>
       compactConsolanteLoserSlots(
-        tournament.bracketMatches,
-        tournament.consolanteMatches
+        resolvedOutcomeMatches.bracketMatches,
+        resolvedOutcomeMatches.consolanteMatches
       ).consolanteMatches,
-    [tournament.bracketMatches, tournament.consolanteMatches]
+    [resolvedOutcomeMatches]
   );
 
   // Generate full tournament with automatic matching classification matches (1 to N)
@@ -363,13 +790,13 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   // Current matches displayed in tree view
   const currentDisplayedMatches = useMemo(() => {
     if (activeTab === 'main') {
-      return tournament.bracketMatches.filter((m) => m.type !== 'consolante');
+      return resolvedOutcomeMatches.bracketMatches.filter((m) => m.type !== 'consolante');
     }
     if (activeTab === 'consolante') {
       return filteredConsolanteMatches;
     }
     return [];
-  }, [activeTab, tournament.bracketMatches, filteredConsolanteMatches]);
+  }, [activeTab, resolvedOutcomeMatches.bracketMatches, filteredConsolanteMatches]);
 
   // Group current matches by bracketRound
   const roundsMap = new Map<number, Match[]>();
@@ -391,6 +818,215 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   const officialStandings = useMemo(() => {
     return computeCompleteFinalStandings(tournament);
   }, [tournament]);
+
+  const confirmCustomStructureEdit = () => {
+    const matches = [...tournament.bracketMatches, ...tournament.consolanteMatches];
+    const hasStartedMatch = matches.some(match =>
+      match.status !== 'scheduled' || Boolean(match.score || match.winnerPairId)
+    );
+    if (!hasStartedMatch) return true;
+    return window.confirm(
+      'Le tableau a déjà commencé. Modifier sa structure effacera les scores et les équipes automatiquement qualifiées. Continuer ?'
+    );
+  };
+
+  const resetCustomMatchResults = (matches: Match[]) =>
+    matches.map(match => ({
+      ...match,
+      score: undefined,
+      winnerPairId: undefined,
+      status: 'scheduled' as const,
+      completedAt: undefined,
+      startedAt: undefined,
+      courtId: undefined,
+      scheduledTime: undefined,
+      scheduledAt: undefined,
+      loserNextMatchId: undefined,
+      loserNextMatchSlot: undefined,
+    }));
+
+  const handleStartCustomEditor = () => {
+    if (tournament.bracketMatches.length || tournament.consolanteMatches.length) {
+      window.alert('Le tableau libre est réservé à la création d’un nouveau tableau.');
+      return;
+    }
+    const firstMatch: Match = {
+      id: `custom_match_${Date.now()}`,
+      tournamentId: tournament.id,
+      type: 'bracket',
+      roundName: 'Tour 1 (#1)',
+      matchNumber: 1,
+      bracketRound: 1,
+      bracketSlotIndex: 0,
+      pair1Placeholder: 'Choisir équipe',
+      pair2Placeholder: 'Choisir équipe',
+      status: 'scheduled',
+    };
+    onUpdateTournament({
+      ...tournament,
+      bracketMode: 'custom',
+      bracketMatches: [firstMatch],
+      bracketEntrantCount: entrantCount,
+    });
+  };
+
+  const saveCustomStructure = (matches: Match[]) => {
+    const hasStartedMatch = [...tournament.bracketMatches, ...tournament.consolanteMatches].some(match =>
+      match.status !== 'scheduled' || Boolean(match.score || match.winnerPairId)
+    );
+    const resetMatches = (hasStartedMatch
+      ? resetCustomMatchResults(matches).map(match => {
+          const pair1IsOutcome = Boolean(match.pair1SourceMatchId) ||
+            /^(?:vainqueur|perdant)\b/i.test(match.pair1Placeholder ?? '');
+          const pair2IsOutcome = Boolean(match.pair2SourceMatchId) ||
+            /^(?:vainqueur|perdant)\b/i.test(match.pair2Placeholder ?? '');
+          return {
+            ...match,
+            pair1Id: pair1IsOutcome ? undefined : match.pair1Id,
+            pair2Id: pair2IsOutcome ? undefined : match.pair2Id,
+          };
+        })
+      : matches.map(match => ({
+          ...match,
+          score: undefined,
+          winnerPairId: undefined,
+          status: 'scheduled' as const,
+        }))).map(match => ({
+      ...match,
+      pair1Placeholder: match.pair1Placeholder ?? 'Choisir équipe',
+      pair2Placeholder: match.pair2Placeholder ?? 'Choisir équipe',
+    }));
+    onUpdateTournament({
+      ...tournament,
+      bracketMode: 'custom',
+      bracketMatches: connectAdjacentBracketMatches(resetMatches),
+      consolanteMatches: [],
+    });
+  };
+
+  const handleAddCustomMatch = (round: number) => {
+    if (!confirmCustomStructureEdit()) return;
+    const match: Match = {
+      id: `custom_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      tournamentId: tournament.id,
+      type: 'bracket',
+      roundName: `Tour ${round}`,
+      matchNumber: tournament.bracketMatches.length + 1,
+      bracketRound: round,
+      bracketSlotIndex: tournament.bracketMatches.filter(item => item.bracketRound === round).length,
+      pair1Placeholder: 'Choisir équipe',
+      pair2Placeholder: 'Choisir équipe',
+      status: 'scheduled',
+    };
+    saveCustomStructure([...tournament.bracketMatches, match]);
+  };
+
+  const handleAddCustomRound = () => {
+    if (!confirmCustomStructureEdit()) return;
+    const nextRound = Math.max(0, ...tournament.bracketMatches.map(match => match.bracketRound ?? 1)) + 1;
+    const match: Match = {
+      id: `custom_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      tournamentId: tournament.id,
+      type: 'bracket',
+      roundName: `Tour ${nextRound}`,
+      matchNumber: tournament.bracketMatches.length + 1,
+      bracketRound: nextRound,
+      bracketSlotIndex: 0,
+      pair1Placeholder: 'Vainqueur du tour précédent',
+      pair2Placeholder: 'Vainqueur du tour précédent',
+      status: 'scheduled',
+    };
+    saveCustomStructure([...tournament.bracketMatches, match]);
+  };
+
+  const handleRemoveCustomMatch = (matchId: string) => {
+    if (!confirmCustomStructureEdit()) return;
+    saveCustomStructure(tournament.bracketMatches.filter(match => match.id !== matchId));
+  };
+
+  const handleMoveCustomMatch = (matchId: string, targetRound: number, beforeMatchId?: string) => {
+    if (matchId === beforeMatchId || !confirmCustomStructureEdit()) return;
+    const sorted = [...tournament.bracketMatches].sort((a, b) =>
+      (a.bracketRound ?? 1) - (b.bracketRound ?? 1) ||
+      (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0)
+    );
+    const movingMatch = sorted.find(match => match.id === matchId);
+    if (!movingMatch) return;
+    const remaining = sorted.filter(match => match.id !== matchId);
+    const targetMatches = remaining.filter(match => match.bracketRound === targetRound);
+    const targetIndex = beforeMatchId
+      ? targetMatches.findIndex(match => match.id === beforeMatchId)
+      : targetMatches.length;
+    targetMatches.splice(targetIndex < 0 ? targetMatches.length : targetIndex, 0, {
+      ...movingMatch,
+      bracketRound: targetRound,
+    });
+    const targetIds = new Set(targetMatches.map(match => match.id));
+    const reordered = [
+      ...remaining.filter(match => match.bracketRound !== targetRound),
+      ...targetMatches,
+    ].map((match, index) => ({
+      ...match,
+      bracketSlotIndex: targetIds.has(match.id)
+        ? targetMatches.findIndex(item => item.id === match.id)
+        : match.bracketSlotIndex ?? index,
+    }));
+    saveCustomStructure(reordered);
+  };
+
+  const handleGenerateCustomClassification = () => {
+    if (!confirmCustomStructureEdit()) return;
+    const roundMatches = new Map<number, Match[]>();
+    tournament.bracketMatches.forEach(match => {
+      const round = match.bracketRound ?? 1;
+      const matches = roundMatches.get(round) ?? [];
+      matches.push(match);
+      roundMatches.set(round, matches);
+    });
+    const orderedRounds = [...roundMatches.entries()].sort(([a], [b]) => a - b);
+    const parallelFinalPlacement = findCustomFinalPlacement(orderedRounds);
+    const sequentialFinalPlacement =
+      orderedRounds.length >= 3 &&
+      orderedRounds.at(-3)?.[1].length === 2 &&
+      orderedRounds.at(-2)?.[1].length === 1 &&
+      orderedRounds.at(-1)?.[1].length === 1;
+    const classificationRounds = orderedRounds.slice(
+      0,
+      parallelFinalPlacement ? -2 : sequentialFinalPlacement ? -3 : -1
+    );
+    const irregularRound = classificationRounds.find(([, matches]) =>
+      !CUSTOM_CLASSIFICATION_COHORT_SIZES.some(size => size === matches.length)
+    );
+    if (irregularRound) {
+      const [round, matches] = irregularRound;
+      const count = matches.length;
+      const paddedSize = CUSTOM_CLASSIFICATION_COHORT_SIZES.find(size => size > count);
+      const byeCount = paddedSize ? paddedSize - count : 0;
+      window.alert(
+        `Le tour ${round} contient ${count} match(s) à classer. Un classement exact nécessiterait ${byeCount} exemption(s). Comme demandé, aucun classement n’a été généré : réorganise les matchs puis réessaie.`
+      );
+      return;
+    }
+    const result = buildCustomConsolationMatches(
+      tournament.id,
+      connectAdjacentBracketMatches(tournament.bracketMatches),
+      entrantCount
+    );
+    if (!result) {
+      window.alert(
+        'Impossible de générer un classement exact : vérifie les équipes inscrites, les liaisons des matchs et les tours à classer (2, 4, 8, 16, 24 ou 32 matchs). Une finale et un match 3e-4e peuvent être placés dans le même tour.'
+      );
+      return;
+    }
+    onUpdateTournament({
+      ...tournament,
+      bracketMode: 'custom',
+      bracketEntrantCount: entrantCount,
+      bracketMatches: result.bracketMatches,
+      consolanteMatches: result.consolanteMatches,
+    });
+    setActiveTab('main');
+  };
 
   // Clear bracket modal
   const handleConfirmDeleteBracket = () => {
@@ -414,22 +1050,77 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     matchId: string,
     slot: 'pair1' | 'pair2',
     pairId?: string,
-    placeholder?: string
+    placeholder?: string,
+    sourceMatchId?: string,
+    sourceOutcome?: 'winner' | 'loser'
   ) => {
+    let resolvedPairId = pairId;
+    const outcomeReference = placeholder?.match(/^(Vainqueur|Perdant)\s+(?:Match\s*#|M#)\s*(\d+)\b/i);
+    const targetMatch = [...tournament.bracketMatches, ...tournament.consolanteMatches]
+      .find(match => match.id === matchId);
+    if (targetMatch && /^(?:Vainqueur|Perdant)\b/i.test(placeholder ?? '')) {
+      const targetWithReference = {
+        ...targetMatch,
+        [`${slot}Placeholder`]: placeholder,
+      };
+      const matchesWithResolvedReference = resolveMatchOutcomeReferences(
+        tournament.bracketMatches.map(match =>
+          match.id === matchId ? targetWithReference : match
+        ),
+        tournament.consolanteMatches.map(match =>
+          match.id === matchId ? targetWithReference : match
+        ),
+        tournament.pairs
+      );
+      const resolvedTarget = [
+        ...matchesWithResolvedReference.bracketMatches,
+        ...matchesWithResolvedReference.consolanteMatches,
+      ].find(match => match.id === matchId);
+      resolvedPairId = resolvedTarget?.[`${slot}Id`] ?? resolvedPairId;
+    }
+
+    if (targetMatch && resolvedPairId) {
+      const otherSlot = slot === 'pair1' ? 'pair2' : 'pair1';
+      if (targetMatch[`${otherSlot}Id`] === resolvedPairId) {
+        window.alert('Cette paire est déjà affectée à l’autre position de ce match.');
+        return;
+      }
+    }
+
+    if (targetMatch && placeholder) {
+      if (outcomeReference) {
+        const otherSlot = slot === 'pair1' ? 'pair2' : 'pair1';
+        const otherPlaceholder = targetMatch[`${otherSlot}Placeholder`] ?? '';
+        const otherReference = otherPlaceholder.match(/^(Vainqueur|Perdant)\s+(?:Match\s*#|M#)\s*(\d+)\b/i);
+        if (
+          otherReference &&
+          outcomeReference[1].toLowerCase() === otherReference[1].toLowerCase() &&
+          outcomeReference[2] === otherReference[2]
+        ) {
+          window.alert('Cette issue de match est déjà affectée à l’autre position de ce match.');
+          return;
+        }
+      }
+    }
+
     const updateMatches = (list: Match[]) =>
       list.map((m) => {
         if (m.id !== matchId) return m;
         if (slot === 'pair1') {
           return {
             ...m,
-            pair1Id: pairId,
-            pair1Placeholder: placeholder || (pairId ? undefined : m.pair1Placeholder),
+            pair1Id: resolvedPairId,
+            pair1Placeholder: placeholder || (resolvedPairId ? undefined : m.pair1Placeholder),
+            pair1SourceMatchId: sourceMatchId,
+            pair1SourceOutcome: sourceOutcome,
           };
         } else {
           return {
             ...m,
-            pair2Id: pairId,
-            pair2Placeholder: placeholder || (pairId ? undefined : m.pair2Placeholder),
+            pair2Id: resolvedPairId,
+            pair2Placeholder: placeholder || (resolvedPairId ? undefined : m.pair2Placeholder),
+            pair2SourceMatchId: sourceMatchId,
+            pair2SourceOutcome: sourceOutcome,
           };
         }
       });
@@ -512,7 +1203,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
             </span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Consolantes calculées automatiquement d&apos;après le tableau principal pour classer l&apos;ensemble des équipes de 1 à N.
+            {tournament.bracketMode === 'custom'
+              ? 'Glisse les matchs entre les tours ; les vainqueurs sont reliés automatiquement selon leur ordre.'
+              : 'Consolantes calculées automatiquement d’après le tableau principal pour classer l’ensemble des équipes de 1 à N.'}
           </p>
         </div>
 
@@ -532,6 +1225,22 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
             >
               Tableau Principal ({tournament.bracketMatches.filter((m) => m.type !== 'consolante').length} m.)
             </button>
+            {tournament.consolanteMatches.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setClassificationSourceRound(null);
+                  setActiveTab('consolante');
+                }}
+                className={`px-3.5 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
+                  activeTab === 'consolante'
+                    ? 'bg-white text-indigo-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Classement ({tournament.consolanteMatches.length} m.)
+              </button>
+            )}
             <button
               onClick={() => {
                 setClassificationSourceRound(null);
@@ -550,6 +1259,54 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
           {/* Generator Controls */}
           <div className="flex flex-wrap items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-xl shadow-xs">
+            {tournament.bracketMode === 'custom' ? (
+              <>
+                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 px-1">
+                  <span>Paires</span>
+                  <input
+                    type="number"
+                    min={2}
+                    max={32}
+                    value={entrantCount}
+                    onChange={(event) => {
+                      const count = Math.max(2, Math.min(32, Number.parseInt(event.target.value, 10) || 2));
+                      if (
+                        tournament.consolanteMatches.length > 0 &&
+                        !window.confirm('Changer le nombre de paires supprimera le classement généré. Continuer ?')
+                      ) return;
+                      setEntrantCount(count);
+                      onUpdateTournament({
+                        ...tournament,
+                        bracketEntrantCount: count,
+                        bracketMatches: tournament.bracketMatches.map(match => ({
+                          ...match,
+                          loserNextMatchId: undefined,
+                          loserNextMatchSlot: undefined,
+                        })),
+                        consolanteMatches: [],
+                      });
+                    }}
+                    className="w-14 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-xs"
+                    aria-label="Nombre total de paires du tableau libre"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddCustomRound}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Ajouter un tour
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerateCustomClassification}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+                >
+                  <Sparkles className="h-3.5 w-3.5" /> Créer le classement
+                </button>
+              </>
+                  ) : (
+              <>
             <select
               value={bracketSize}
               onChange={(e) => {
@@ -606,8 +1363,19 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               <Sparkles className="w-3.5 h-3.5" />
               <span>Générer ({entrantCount}/{bracketSize})</span>
             </button>
+            {tournament.bracketMatches.length === 0 && tournament.consolanteMatches.length === 0 && (
+              <button
+                type="button"
+                onClick={handleStartCustomEditor}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
+              >
+                <GitBranch className="h-3.5 w-3.5" /> Construire librement
+              </button>
+            )}
+              </>
+            )}
 
-            {tournament.bracketMatches.length > 0 && (
+            {(tournament.bracketMatches.length > 0 || tournament.consolanteMatches.length > 0) && (
               <button
                 type="button"
                 onClick={() => setIsClearTableauModalOpen(true)}
@@ -935,6 +1703,119 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
             </div>
           </div>
         </div>
+      ) : tournament.bracketMode === 'custom' && activeTab === 'main' ? (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs text-indigo-950">
+            Glisse une case vers un autre tour ou une autre position. Les vainqueurs de deux matchs voisins seront automatiquement reliés au match suivant. Les perdants seront reliés au classement exact après sa création.
+          </div>
+          <div className="flex items-start gap-5 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+            {sortedRoundNumbers.map(roundNum => {
+              const roundMatches = [...(roundsMap.get(roundNum) ?? [])].sort(
+                (a, b) => (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0)
+              );
+              return (
+                <section
+                  key={roundNum}
+                  className="flex w-[280px] min-h-72 shrink-0 flex-col rounded-xl bg-slate-50 p-3"
+                  onDragOver={event => event.preventDefault()}
+                  onDrop={event => {
+                    event.preventDefault();
+                    if (draggedMatchId) handleMoveCustomMatch(draggedMatchId, roundNum);
+                    setDraggedMatchId(null);
+                  }}
+                >
+                  <header className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2">
+                    <h2 className="text-sm font-extrabold text-slate-900">Tour {roundNum}</h2>
+                    <span className="text-[11px] text-slate-500">{roundMatches.length} match(s)</span>
+                  </header>
+                  <div className="flex flex-1 flex-col gap-3">
+                    {roundMatches.map(match => {
+                      const p1 = match.pair1Id ? pairsMap.get(match.pair1Id) : undefined;
+                      const p2 = match.pair2Id ? pairsMap.get(match.pair2Id) : undefined;
+                      return (
+                        <article
+                          key={match.id}
+                          draggable={match.status === 'scheduled'}
+                          onDragStart={() => setDraggedMatchId(match.id)}
+                          onDragEnd={() => setDraggedMatchId(null)}
+                          onDragOver={event => event.preventDefault()}
+                          onDrop={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (draggedMatchId) handleMoveCustomMatch(draggedMatchId, roundNum, match.id);
+                            setDraggedMatchId(null);
+                          }}
+                          className={`rounded-xl border border-slate-200 bg-white shadow-xs ${
+                            match.status === 'scheduled' ? 'cursor-grab active:cursor-grabbing' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                              <GripVertical className="h-4 w-4 text-slate-400" />
+                              Match #{match.matchNumber}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCustomMatch(match.id)}
+                                className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700"
+                                aria-label={`Supprimer le match ${match.matchNumber}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onOpenScoreModal(match)}
+                                className="rounded bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+                              >
+                                {match.status === 'completed' ? 'Score' : 'Saisir'}
+                              </button>
+                            </div>
+                          </div>
+                          {(['pair1', 'pair2'] as const).map(slot => (
+                            <button
+                              key={slot}
+                              type="button"
+                              onClick={() => setSlotModalInfo({
+                                matchId: match.id,
+                                slot,
+                                roundName: match.roundName,
+                                matchNumber: match.matchNumber,
+                              })}
+                              className="block w-full truncate border-b border-slate-100 px-3 py-2 text-left text-xs text-slate-700 last:border-0 hover:bg-emerald-50"
+                            >
+                              {(slot === 'pair1' ? p1 : p2)
+                                ? `${(slot === 'pair1' ? p1 : p2)!.player1.firstName} ${(slot === 'pair1' ? p1 : p2)!.player1.lastName} / ${(slot === 'pair1' ? p1 : p2)!.player2.firstName} ${(slot === 'pair1' ? p1 : p2)!.player2.lastName}`
+                                : resolveMatchOutcomePlaceholder(
+                                    match,
+                                    slot,
+                                    resolvedOutcomeMatches.bracketMatches
+                                  ) ||
+                                  match[`${slot}Placeholder`] ||
+                                  'Choisir une équipe'}
+                            </button>
+                          ))}
+                          {match.score && (
+                            <div className="border-t border-slate-100 px-3 py-2 text-xs font-bold text-emerald-800">
+                              {formatScore(match.score)}
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => handleAddCustomMatch(roundNum)}
+                      className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 text-xs font-bold text-slate-600 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-800"
+                    >
+                      <Plus className="h-4 w-4" /> Ajouter une case match
+                    </button>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </div>
       ) : (
         /* TREE BRACKET VIEW (MAIN OR CONSOLANTE) */
         <div className="space-y-4">
@@ -1099,8 +1980,19 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                     <span className="truncate">
                                       {p1
                                         ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}`
-                                        : match.pair1Placeholder || 'Choisir équipe'}
+                                        : resolveMatchOutcomePlaceholder(
+                                            match,
+                                            'pair1',
+                                            resolvedOutcomeMatches.bracketMatches
+                                          ) ||
+                                          match.pair1Placeholder ||
+                                          'Choisir équipe'}
                                     </span>
+                                    {p1 && /^(?:Vainqueur|Perdant)\b/i.test(match.pair1Placeholder ?? '') && (
+                                      <span className="shrink-0 text-[10px] font-semibold text-indigo-600">
+                                        {match.pair1Placeholder}
+                                      </span>
+                                    )}
                                   </div>
                                   {match.winnerPairId === match.pair1Id && (
                                     <Trophy className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -1133,8 +2025,19 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                     <span className="truncate">
                                       {p2
                                         ? `${p2.player1.firstName} ${p2.player1.lastName} / ${p2.player2.firstName} ${p2.player2.lastName}`
-                                        : match.pair2Placeholder || 'Choisir équipe'}
+                                        : resolveMatchOutcomePlaceholder(
+                                            match,
+                                            'pair2',
+                                            resolvedOutcomeMatches.bracketMatches
+                                          ) ||
+                                          match.pair2Placeholder ||
+                                          'Choisir équipe'}
                                     </span>
+                                    {p2 && /^(?:Vainqueur|Perdant)\b/i.test(match.pair2Placeholder ?? '') && (
+                                      <span className="shrink-0 text-[10px] font-semibold text-indigo-600">
+                                        {match.pair2Placeholder}
+                                      </span>
+                                    )}
                                   </div>
                                   {match.winnerPairId === match.pair2Id && (
                                     <Trophy className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -1331,7 +2234,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               hasWinner ? m.winnerPairId : undefined,
                               hasWinner
                                 ? `Vainqueur Match #${m.matchNumber}`
-                                : `Vainqueur Match #${m.matchNumber} (${m.roundName})`
+                                : `Vainqueur Match #${m.matchNumber} (${m.roundName})`,
+                              m.id,
+                              'winner'
                             );
                           }}
                           className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 text-left transition-colors flex items-center justify-between text-xs"
@@ -1373,14 +2278,18 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                 slotModalInfo.matchId,
                                 slotModalInfo.slot,
                                 loserId,
-                                `Perdant Match #${m.matchNumber}`
+                                `Perdant Match #${m.matchNumber}`,
+                                m.id,
+                                'loser'
                               );
                             } else {
                               handleAssignToSlot(
                                 slotModalInfo.matchId,
                                 slotModalInfo.slot,
                                 undefined,
-                                `Perdant Match #${m.matchNumber} (${m.roundName})`
+                                `Perdant Match #${m.matchNumber} (${m.roundName})`,
+                                m.id,
+                                'loser'
                               );
                             }
                           }}

@@ -27,6 +27,7 @@ import { computePoolStandings } from './utils/padelCalculations';
 import {
   compactConsolanteLoserSlots,
   rescheduleMatchesFromNow,
+  resolveMatchOutcomeReferences,
   resolveBracketByes,
 } from './utils/padelSchedule';
 
@@ -247,7 +248,21 @@ export default function App() {
 
   // Open Score Modal
   const handleOpenScoreModal = (match: Match) => {
-    setScoreModalMatch(match);
+    if (!activeTournament) {
+      setScoreModalMatch(match);
+      return;
+    }
+
+    const resolvedMatches = resolveMatchOutcomeReferences(
+      activeTournament.bracketMatches,
+      activeTournament.consolanteMatches,
+      activeTournament.pairs
+    );
+    const resolvedMatch = [
+      ...resolvedMatches.bracketMatches,
+      ...resolvedMatches.consolanteMatches,
+    ].find(candidate => candidate.id === match.id);
+    setScoreModalMatch(resolvedMatch ?? match);
   };
 
   // Save score, advance winners in main bracket AND automatically feed losers into consolante
@@ -255,6 +270,13 @@ export default function App() {
     if (!activeTournament) return;
 
     let updated = { ...activeTournament };
+    const existingOutcomes = resolveMatchOutcomeReferences(
+      updated.bracketMatches,
+      updated.consolanteMatches,
+      updated.pairs
+    );
+    updated.bracketMatches = existingOutcomes.bracketMatches;
+    updated.consolanteMatches = existingOutcomes.consolanteMatches;
     const completedAt = new Date();
     const pairsMap = new Map<string, Pair>(updated.pairs.map(p => [p.id, p]));
 
@@ -294,6 +316,14 @@ export default function App() {
         const loserPairId = winnerPairId
           ? (winnerPairId === targetMatch.pair1Id ? targetMatch.pair2Id : targetMatch.pair1Id)
           : undefined;
+        const hasExplicitWinnerRoute = allTournamentMatches.some(match =>
+          (match.pair1SourceMatchId === targetMatch.id && match.pair1SourceOutcome === 'winner') ||
+          (match.pair2SourceMatchId === targetMatch.id && match.pair2SourceOutcome === 'winner')
+        );
+        const hasExplicitLoserRoute = allTournamentMatches.some(match =>
+          (match.pair1SourceMatchId === targetMatch.id && match.pair1SourceOutcome === 'loser') ||
+          (match.pair2SourceMatchId === targetMatch.id && match.pair2SourceOutcome === 'loser')
+        );
 
         const updateMatchList = (list: Match[]): Match[] => {
           return list.map((m) => {
@@ -308,42 +338,53 @@ export default function App() {
             }
 
             let updatedMatch = { ...m };
+            const assignProgressedPair = (slot: 'pair1' | 'pair2', pairId: string) => {
+              const otherSlot = slot === 'pair1' ? 'pair2' : 'pair1';
+              if (updatedMatch[`${otherSlot}Id`] === pairId) {
+                window.alert(
+                  `La paire issue du match #${targetMatch.matchNumber} est déjà affectée à l’autre position du match #${updatedMatch.matchNumber}.`
+                );
+                return;
+              }
+              updatedMatch[`${slot}Id`] = pairId;
+            };
 
-            // Advance winner to nextMatchId
-            if (targetMatch.nextMatchId && m.id === targetMatch.nextMatchId && winnerPairId) {
+            const explicitlyLinkedWinnerSlots = (['pair1', 'pair2'] as const).filter(slot =>
+              m[`${slot}SourceMatchId`] === targetMatch.id &&
+              m[`${slot}SourceOutcome`] === 'winner'
+            );
+            const explicitlyLinkedLoserSlots = (['pair1', 'pair2'] as const).filter(slot =>
+              m[`${slot}SourceMatchId`] === targetMatch.id &&
+              m[`${slot}SourceOutcome`] === 'loser'
+            );
+
+            if (winnerPairId && explicitlyLinkedWinnerSlots.length > 0) {
+              explicitlyLinkedWinnerSlots.forEach(slot => assignProgressedPair(slot, winnerPairId));
+            } else if (
+              !hasExplicitWinnerRoute &&
+              targetMatch.nextMatchId &&
+              m.id === targetMatch.nextMatchId &&
+              winnerPairId
+            ) {
               if (targetMatch.nextMatchSlot === 'pair1') {
-                updatedMatch.pair1Id = winnerPairId;
+                assignProgressedPair('pair1', winnerPairId);
               } else if (targetMatch.nextMatchSlot === 'pair2') {
-                updatedMatch.pair2Id = winnerPairId;
+                assignProgressedPair('pair2', winnerPairId);
               }
             }
 
-            // Advance loser to loserNextMatchId (Consolante / Placement matches)
-            if (targetMatch.loserNextMatchId && m.id === targetMatch.loserNextMatchId && loserPairId) {
+            if (loserPairId && explicitlyLinkedLoserSlots.length > 0) {
+              explicitlyLinkedLoserSlots.forEach(slot => assignProgressedPair(slot, loserPairId));
+            } else if (
+              !hasExplicitLoserRoute &&
+              targetMatch.loserNextMatchId &&
+              m.id === targetMatch.loserNextMatchId &&
+              loserPairId
+            ) {
               if (targetMatch.loserNextMatchSlot === 'pair1') {
-                updatedMatch.pair1Id = loserPairId;
+                assignProgressedPair('pair1', loserPairId);
               } else if (targetMatch.loserNextMatchSlot === 'pair2') {
-                updatedMatch.pair2Id = loserPairId;
-              }
-            }
-
-            // Fallback for placeholder matching
-            if (loserPairId) {
-              if (
-                !updatedMatch.pair1Id &&
-                (updatedMatch.pair1Placeholder?.includes(`Match #${targetMatch.matchNumber}`) ||
-                  (targetMatch.roundName &&
-                    updatedMatch.pair1Placeholder?.includes(targetMatch.roundName)))
-              ) {
-                updatedMatch.pair1Id = loserPairId;
-              }
-              if (
-                !updatedMatch.pair2Id &&
-                (updatedMatch.pair2Placeholder?.includes(`Match #${targetMatch.matchNumber}`) ||
-                  (targetMatch.roundName &&
-                    updatedMatch.pair2Placeholder?.includes(targetMatch.roundName)))
-              ) {
-                updatedMatch.pair2Id = loserPairId;
+                assignProgressedPair('pair2', loserPairId);
               }
             }
 
@@ -356,12 +397,22 @@ export default function App() {
       }
     }
 
-    const resolvedByes = resolveBracketByes(
+    const resolvedOutcomes = resolveMatchOutcomeReferences(
       updated.bracketMatches,
-      updated.consolanteMatches
+      updated.consolanteMatches,
+      updated.pairs
     );
-    updated.bracketMatches = resolvedByes.bracketMatches;
-    updated.consolanteMatches = resolvedByes.consolanteMatches;
+    const resolvedByes = resolveBracketByes(
+      resolvedOutcomes.bracketMatches,
+      resolvedOutcomes.consolanteMatches
+    );
+    const resolvedByeOutcomes = resolveMatchOutcomeReferences(
+      resolvedByes.bracketMatches,
+      resolvedByes.consolanteMatches,
+      updated.pairs
+    );
+    updated.bracketMatches = resolvedByeOutcomes.bracketMatches;
+    updated.consolanteMatches = resolvedByeOutcomes.consolanteMatches;
 
     if (updated.courts.length > 0) {
       const rescheduled = rescheduleMatchesFromNow(

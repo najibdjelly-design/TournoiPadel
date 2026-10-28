@@ -62,6 +62,10 @@ export interface Match {
   pair2Id?: string;
   pair1Placeholder?: string; // e.g. "1er Poule A" or "Vainqueur M1"
   pair2Placeholder?: string; // e.g. "2e Poule B" or "Vainqueur M2"
+  pair1SourceMatchId?: string;
+  pair1SourceOutcome?: 'winner' | 'loser';
+  pair2SourceMatchId?: string;
+  pair2SourceOutcome?: 'winner' | 'loser';
   score?: MatchScore;
   winnerPairId?: string;
   status: MatchStatus;
@@ -164,6 +168,7 @@ export interface Tournament {
   maxPairs: number;
   bracketSize?: 4 | 8 | 16 | 24 | 32;
   bracketEntrantCount?: number;
+  bracketMode?: 'standard' | 'custom';
   status: TournamentStatus;
   matchFormat: string; // e.g. "Format 1 (2 sets gagnants standard)" or "Format 2 (2 sets + super tie-break 10 pts)"
   courtsCount: number;
