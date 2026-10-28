@@ -729,10 +729,36 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
         tournament.bracketMatches,
         tournament.consolanteMatches
       ).bracketMatches;
-      const pendingIds = sourceMatches
-        .filter(match => (match.bracketRound || 1) === classificationSourceRound)
+      const sourceRoundMatches = sourceMatches.filter(
+        match => (match.bracketRound || 1) === classificationSourceRound
+      );
+      const sourceMatchIds = new Set(sourceRoundMatches.map(match => match.id));
+      const sourceMatchNumbers = new Set(sourceRoundMatches.map(match => match.matchNumber));
+      const eliminatedPairIds = new Set(
+        sourceRoundMatches.flatMap(match => {
+          if (!match.winnerPairId) return [];
+          const loserPairId = match.winnerPairId === match.pair1Id ? match.pair2Id : match.pair1Id;
+          return loserPairId ? [loserPairId] : [];
+        })
+      );
+      const pendingIds = sourceRoundMatches
         .map(match => match.loserNextMatchId)
         .filter((matchId): matchId is string => Boolean(matchId));
+
+      for (const match of compactedConsolanteMatches) {
+        const hasSourceLoser = (['pair1', 'pair2'] as const).some(slot => {
+          const sourceMatchId = match[`${slot}SourceMatchId`];
+          const sourceOutcome = match[`${slot}SourceOutcome`];
+          const placeholder = match[`${slot}Placeholder`] ?? '';
+          const matchNumber = placeholder.match(/^(?:Perdant)\s+(?:Match\s*#|M#)\s*(\d+)\b/i);
+          return (
+            (sourceMatchId && sourceOutcome === 'loser' && sourceMatchIds.has(sourceMatchId)) ||
+            (matchNumber && sourceMatchNumbers.has(Number(matchNumber[1]))) ||
+            Boolean(match[`${slot}Id`] && eliminatedPairIds.has(match[`${slot}Id`]!))
+          );
+        });
+        if (hasSourceLoser) pendingIds.push(match.id);
+      }
 
       while (pendingIds.length > 0) {
         const matchId = pendingIds.pop()!;
@@ -744,7 +770,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
         if (match.loserNextMatchId) pendingIds.push(match.loserNextMatchId);
       }
 
-      return compactedConsolanteMatches.filter(match => relevantIds.has(match.id));
+      return relevantIds.size
+        ? compactedConsolanteMatches.filter(match => relevantIds.has(match.id))
+        : compactedConsolanteMatches;
     }
     if (consolanteCategory === 'all') return compactedConsolanteMatches;
     if (consolanteCategory === '5-8') {
@@ -1936,12 +1964,6 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                         )
                       )].join(' / ')
                     : `Tour de Classement ${roundNum}`;
-                  const hasClassificationMatches = activeTab === 'main' &&
-                    tournament.consolanteMatches.length > 0 &&
-                    tournament.bracketMatches.some(match =>
-                      (match.bracketRound ?? 1) === roundNum && Boolean(match.loserNextMatchId)
-                    );
-
                   return (
                     <div key={roundNum} className="flex-1 min-w-[260px] flex flex-col">
                       {/* Round Header */}
@@ -1956,17 +1978,15 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               aria-label={`Nom du tour ${roundNum}`}
                               className="w-full max-w-[220px] rounded-md border border-transparent bg-transparent px-1 py-1 text-center text-xs font-bold uppercase tracking-wider text-emerald-800 hover:border-slate-300 focus:border-emerald-500 focus:bg-white focus:outline-none"
                             />
-                            {hasClassificationMatches && (
-                              <button
-                                type="button"
-                                onClick={() => openRoundClassification(roundNum)}
-                                className="inline-flex shrink-0 items-center rounded p-1 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-950"
-                                title={`Voir les matchs de classement liés à ${roundTitle}`}
-                                aria-label={`Voir le classement de ${roundTitle}`}
-                              >
-                                <ChevronRight className="h-3.5 w-3.5" />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => openRoundClassification(roundNum)}
+                              className="inline-flex shrink-0 items-center rounded p-1 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-950"
+                              title={`Voir les matchs de classement liés à ${roundTitle}`}
+                              aria-label={`Voir le classement de ${roundTitle}`}
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         ) : (
                           <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
