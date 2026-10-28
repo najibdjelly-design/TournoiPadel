@@ -359,98 +359,27 @@ export function createConflictFreeSchedule(
     );
   };
 
-  const bracketRounds = [...new Set(
-    bracketMatches
-      .filter(match => match.type === 'bracket' && match.bracketRound !== undefined && isMatchSchedulable(match))
-      .map(match => match.bracketRound!)
-  )].sort((a, b) => a - b);
-  const bracketStages: Match[][] = bracketRounds.map(round =>
-    bracketMatches.filter(match => match.type === 'bracket' && match.bracketRound === round && isMatchSchedulable(match))
-  );
-
-  const stages: Match[][] = [];
   const poolPhases = [...new Set(pools.map(pool => pool.phase ?? 1))].sort((a, b) => a - b);
+  const poolStages: Match[][] = [];
 
   for (const phase of poolPhases) {
     const phasePoolIds = new Set(
       pools.filter(pool => (pool.phase ?? 1) === phase).map(pool => pool.id)
     );
-    stages.push(allMatches.filter(match =>
+    poolStages.push(allMatches.filter(match =>
       match.type === 'pool' &&
       match.poolId !== undefined &&
       phasePoolIds.has(match.poolId)
     ));
   }
 
-  const consolationRounds = [...new Set(
-    consolanteMatches
-      .filter(match => match.bracketRound !== undefined && isMatchSchedulable(match))
-      .map(match => match.bracketRound!)
-  )].sort((a, b) => a - b);
-
-  const consolationReleaseRound = new Map<string, number>();
-  const addConsolationRelease = (matchId: string | undefined, sourceRound: number) => {
-    if (!matchId) return false;
-    const previousRound = consolationReleaseRound.get(matchId);
-    if (previousRound !== undefined && previousRound >= sourceRound) return false;
-    consolationReleaseRound.set(matchId, sourceRound);
-    return true;
-  };
-
-  for (const match of bracketMatches) {
-    if (match.type === 'bracket' && match.bracketRound !== undefined) {
-      addConsolationRelease(match.loserNextMatchId, match.bracketRound);
-    }
-  }
-
-  let releaseRoundChanged = true;
-  while (releaseRoundChanged) {
-    releaseRoundChanged = false;
-    for (const match of consolanteMatches) {
-      const sourceRound = consolationReleaseRound.get(match.id);
-      if (sourceRound === undefined) continue;
-      if (addConsolationRelease(match.nextMatchId, sourceRound)) {
-        releaseRoundChanged = true;
-      }
-      if (addConsolationRelease(match.loserNextMatchId, sourceRound)) {
-        releaseRoundChanged = true;
-      }
-    }
-  }
-
-  const addConsolationStages = (sourceRound?: number) => {
-    for (const round of consolationRounds) {
-      const stage = consolanteMatches.filter(match =>
-        match.bracketRound === round &&
-        isMatchSchedulable(match) &&
-        (sourceRound === undefined
-          ? !consolationReleaseRound.has(match.id)
-          : consolationReleaseRound.get(match.id) === sourceRound)
-      );
-      if (stage.length) stages.push(stage);
-    }
-  };
-
-  for (const bracketStage of bracketStages) {
-    stages.push(bracketStage);
-    const round = bracketStage[0]?.bracketRound;
-    if (round !== undefined) addConsolationStages(round);
-  }
-
-  addConsolationStages();
-
-  const stagedMatchIds = new Set(stages.flat().map(match => match.id));
+  const stagedPoolMatchIds = new Set(poolStages.flat().map(match => match.id));
   const otherPoolMatches = allMatches.filter(match =>
-    !stagedMatchIds.has(match.id) &&
+    !stagedPoolMatchIds.has(match.id) &&
     match.type === 'pool' &&
     isMatchSchedulable(match)
   );
-  if (otherPoolMatches.length) stages.unshift(otherPoolMatches);
-  const nonEmptyStages = stages.filter(stage => stage.length > 0);
-  const stageIndexByMatchId = new Map<string, number>();
-  nonEmptyStages.forEach((stage, index) => {
-    stage.forEach(match => stageIndexByMatchId.set(match.id, index));
-  });
+  if (otherPoolMatches.length) poolStages.unshift(otherPoolMatches);
 
   const getMatchEndAt = (match: Match): number | undefined => {
     if (match.status === 'completed' || match.status === 'walkover') {
@@ -557,33 +486,20 @@ export function createConflictFreeSchedule(
   }
 
   const scheduledPending = allMatches.filter(match =>
-    stageIndexByMatchId.has(match.id) &&
     match.status !== 'completed' &&
     match.status !== 'walkover' &&
     match.status !== 'in_progress' &&
     match.status !== 'warmup'
   );
-  let previousWaveEnd = startMs;
-
-  for (const [waveIndex, wave] of nonEmptyStages.entries()) {
-    const wavePending = scheduledPending.filter(match => wave.includes(match));
-    if (!wavePending.length) {
-      const completedEnds = wave.map(getMatchEndAt);
-      if (completedEnds.some(endAt => endAt === undefined)) break;
-      previousWaveEnd = Math.max(previousWaveEnd, ...completedEnds as number[]);
-      continue;
-    }
-
-    const waveStartBarrier = waveIndex === 0 ? startMs : previousWaveEnd;
-
-    while (wavePending.length > 0) {
+  const scheduleReadyMatches = (pending: Match[], startBarrier: number): boolean => {
+    while (pending.length > 0) {
       let best: {
         match: Match;
         court: Court;
         startAt: number;
       } | undefined;
 
-      for (const match of wavePending) {
+      for (const match of pending) {
         const pair1 = participantBySlot.get(slotKey(match.id, 'pair1'));
         const pair2 = participantBySlot.get(slotKey(match.id, 'pair2'));
         if (!pair1 || !pair2) continue;
@@ -599,7 +515,7 @@ export function createConflictFreeSchedule(
         for (const court of courts) {
           const startAt = Math.max(
             pairReadyAt,
-            waveStartBarrier,
+            startBarrier,
             courtAvailableAt.get(court.id) ?? startMs
           );
           if (
@@ -612,7 +528,7 @@ export function createConflictFreeSchedule(
         }
       }
 
-      if (!best) break;
+      if (!best) return false;
 
       const duration = (best.match.durationMinutes ?? slotDuration) * 60_000;
       const availableAt = best.startAt + duration;
@@ -641,14 +557,23 @@ export function createConflictFreeSchedule(
         availableAt,
         true
       );
-      wavePending.splice(wavePending.findIndex(match => match.id === best!.match.id), 1);
+      pending.splice(pending.findIndex(match => match.id === best!.match.id), 1);
     }
 
-    if (wavePending.length > 0) break;
-    const waveEnds = wave.map(getMatchEndAt);
-    if (waveEnds.some(endAt => endAt === undefined)) break;
-    previousWaveEnd = Math.max(previousWaveEnd, ...waveEnds as number[]);
+    return true;
+  };
+
+  let previousPoolPhaseEnd = startMs;
+  for (const phase of poolStages) {
+    const phasePending = scheduledPending.filter(match => phase.includes(match));
+    if (!scheduleReadyMatches(phasePending, previousPoolPhaseEnd)) return assignments;
+    const phaseEnds = phase.map(getMatchEndAt);
+    if (phaseEnds.some(endAt => endAt === undefined)) return assignments;
+    previousPoolPhaseEnd = Math.max(previousPoolPhaseEnd, ...phaseEnds as number[]);
   }
+
+  const bracketAndConsolanteMatches = scheduledPending.filter(match => match.type !== 'pool');
+  scheduleReadyMatches(bracketAndConsolanteMatches, previousPoolPhaseEnd);
 
   return assignments;
 }

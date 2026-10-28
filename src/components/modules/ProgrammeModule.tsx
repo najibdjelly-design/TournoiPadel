@@ -653,7 +653,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
         : latest;
     }, { time: startTime, minutes: timeToMinutes(startTime) ?? 0 }).time;
     setOptimizationReport(totalScheduled > 0
-      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Les créneaux existants ont été conservés.`
+      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Les rencontres s'enchaînent dès que leurs équipes sont disponibles.`
       : 'Aucun match ne peut encore être programmé : il faut que les deux paires soient connues pour chaque rencontre.'
     );
     setShowOptimizerPanel(true);
