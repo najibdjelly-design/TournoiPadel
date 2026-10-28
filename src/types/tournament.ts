@@ -76,6 +76,7 @@ export interface Match {
   completedAt?: string;
   durationMinutes?: number;
   bracketRound?: number; // 1 for R16, 2 for QF, 3 for SF, 4 for Final
+  bracketRoundName?: string;
   bracketSlotIndex?: number;
   nextMatchId?: string;
   nextMatchSlot?: 'pair1' | 'pair2';
