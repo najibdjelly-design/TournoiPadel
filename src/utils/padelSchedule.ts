@@ -491,6 +491,8 @@ export function createConflictFreeSchedule(
     match.status !== 'in_progress' &&
     match.status !== 'warmup'
   );
+  const getMatchSchedulingPriority = (match: Match): number =>
+    match.type === 'bracket' ? 1 : 0;
   const scheduleReadyMatches = (pending: Match[], startBarrier: number): boolean => {
     while (pending.length > 0) {
       let best: {
@@ -521,7 +523,11 @@ export function createConflictFreeSchedule(
           if (
             !best ||
             startAt < best.startAt ||
-            (startAt === best.startAt && match.matchNumber < best.match.matchNumber)
+            (startAt === best.startAt && (
+              getMatchSchedulingPriority(match) > getMatchSchedulingPriority(best.match) ||
+              (getMatchSchedulingPriority(match) === getMatchSchedulingPriority(best.match) &&
+                match.matchNumber < best.match.matchNumber)
+            ))
           ) {
             best = { match, court, startAt };
           }
