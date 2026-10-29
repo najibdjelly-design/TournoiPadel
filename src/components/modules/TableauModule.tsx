@@ -27,6 +27,8 @@ import {
   ChevronRight,
   Plus,
   GripVertical,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import {
   compactConsolanteLoserSlots,
@@ -715,6 +717,8 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       }),
       bracketSize: size,
       bracketEntrantCount: configuredEntrants,
+      bracketLabelsEditable: false,
+      consolanteLabelsEditable: false,
       bracketMatches: newMainMatches,
       consolanteMatches: newConsolanteMatches,
     });
@@ -893,6 +897,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     onUpdateTournament({
       ...tournament,
       bracketMode: 'custom',
+      bracketLabelsEditable: false,
       bracketMatches: [firstMatch],
       bracketEntrantCount: entrantCount,
     });
@@ -927,6 +932,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     onUpdateTournament({
       ...tournament,
       bracketMode: 'custom',
+      bracketLabelsEditable: false,
       bracketMatches: connectAdjacentBracketMatches(resetMatches),
       consolanteMatches: [],
     });
@@ -1004,10 +1010,18 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     saveCustomStructure(reordered);
   };
 
-  const handleUpdateRoundName = (round: number, name: string) => {
+  const handleUpdateRoundName = (round: number, name: string, table: 'main' | 'consolante') => {
+    const isEditable = table === 'main'
+      ? tournament.bracketLabelsEditable
+      : tournament.consolanteLabelsEditable;
+    if (!isEditable) return;
+
     const roundName = name.trim();
+    const matchesToUpdate = table === 'main'
+      ? tournament.bracketMatches
+      : tournament.consolanteMatches;
     const roundMatchIndexes = new Map(
-      [...tournament.bracketMatches]
+      [...matchesToUpdate]
         .filter(match => (match.bracketRound ?? 1) === round)
         .sort((a, b) =>
           (a.bracketSlotIndex ?? 0) - (b.bracketSlotIndex ?? 0) ||
@@ -1015,19 +1029,32 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
         )
         .map((match, index) => [match.id, index + 1])
     );
-    const matches = tournament.bracketMatches.map(match =>
+    const matches = matchesToUpdate.map(match =>
       (match.bracketRound ?? 1) === round
         ? {
             ...match,
             bracketRoundName: roundName || undefined,
-            roundName: `${roundName || `Tour ${round}`} (#${roundMatchIndexes.get(match.id)})`,
+            roundName: `${roundName || (table === 'main' ? `Tour ${round}` : `Tour de Classement ${round}`)} (#${roundMatchIndexes.get(match.id)})`,
           }
         : match
     );
-    onUpdateTournament({
-      ...tournament,
-      bracketMatches: matches,
-    });
+    onUpdateTournament(table === 'main'
+      ? { ...tournament, bracketMatches: matches }
+      : { ...tournament, consolanteMatches: matches });
+  };
+
+  const toggleRoundLabelEditing = () => {
+    if (activeTab === 'main') {
+      onUpdateTournament({
+        ...tournament,
+        bracketLabelsEditable: !tournament.bracketLabelsEditable,
+      });
+    } else if (activeTab === 'consolante') {
+      onUpdateTournament({
+        ...tournament,
+        consolanteLabelsEditable: !tournament.consolanteLabelsEditable,
+      });
+    }
   };
 
   const openRoundClassification = (round: number) => {
@@ -1083,6 +1110,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       ...tournament,
       bracketMode: 'custom',
       bracketEntrantCount: entrantCount,
+      consolanteLabelsEditable: false,
       bracketMatches: result.bracketMatches,
       consolanteMatches: result.consolanteMatches,
     });
@@ -1094,12 +1122,15 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     if (activeTab === 'main') {
       onUpdateTournament({
         ...tournament,
+        bracketLabelsEditable: false,
+        consolanteLabelsEditable: false,
         bracketMatches: [],
         consolanteMatches: [],
       });
     } else {
       onUpdateTournament({
         ...tournament,
+        consolanteLabelsEditable: false,
         consolanteMatches: [],
       });
     }
@@ -1447,6 +1478,31 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                 <span className="hidden sm:inline">Vider</span>
               </button>
             )}
+            {((activeTab === 'main' && tournament.bracketMatches.length > 0) ||
+              (activeTab === 'consolante' && tournament.consolanteMatches.length > 0)) && (
+              <button
+                type="button"
+                onClick={toggleRoundLabelEditing}
+                aria-pressed={
+                  activeTab === 'main'
+                    ? Boolean(tournament.bracketLabelsEditable)
+                    : Boolean(tournament.consolanteLabelsEditable)
+                }
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border rounded-lg transition-colors ${
+                  (activeTab === 'main'
+                    ? tournament.bracketLabelsEditable
+                    : tournament.consolanteLabelsEditable)
+                    ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-200'
+                    : 'text-slate-700 bg-white hover:bg-slate-50 border-slate-300'
+                }`}
+              >
+                {(activeTab === 'main'
+                  ? tournament.bracketLabelsEditable
+                  : tournament.consolanteLabelsEditable)
+                  ? <><Unlock className="w-3.5 h-3.5" /> Verrouiller</>
+                  : <><Lock className="w-3.5 h-3.5" /> Activer l’édition</>}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1791,10 +1847,11 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                       <input
                         type="text"
                         value={roundLabel}
-                        onChange={event => handleUpdateRoundName(roundNum, event.target.value)}
+                        onChange={event => handleUpdateRoundName(roundNum, event.target.value, 'main')}
+                        disabled={!tournament.bracketLabelsEditable}
                         maxLength={40}
                         aria-label={`Nom du tour ${roundNum}`}
-                        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-extrabold text-slate-900 hover:border-slate-300 focus:border-emerald-500 focus:bg-white focus:outline-none"
+                        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-extrabold text-slate-900 enabled:hover:border-slate-300 enabled:focus:border-emerald-500 enabled:focus:bg-white enabled:focus:outline-none disabled:cursor-not-allowed"
                       />
                       <span className="block px-1 text-[11px] text-slate-500">
                         {roundMatches.length} match(s)
@@ -1961,30 +2018,41 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                           match.roundName.replace(/\s*\(#\d+\)$/, '')
                         )
                       )].join(' / ')
-                    : `Tour de Classement ${roundNum}`;
+                    : roundMatches[0]?.bracketRoundName || `Tour de Classement ${roundNum}`;
                   return (
                     <div key={roundNum} className="flex-1 min-w-[260px] flex flex-col">
                       {/* Round Header */}
                       <div className="text-center pb-2.5 mb-3 border-b border-slate-200">
-                        {activeTab === 'main' ? (
+                        {activeTab === 'main' || activeTab === 'consolante' ? (
                           <div className="flex items-center justify-center gap-1">
                             <input
                               type="text"
                               value={roundTitle}
-                              onChange={event => handleUpdateRoundName(roundNum, event.target.value)}
+                              onChange={event => handleUpdateRoundName(
+                                roundNum,
+                                event.target.value,
+                                activeTab
+                              )}
+                              disabled={
+                                activeTab === 'main'
+                                  ? !tournament.bracketLabelsEditable
+                                  : !tournament.consolanteLabelsEditable
+                              }
                               maxLength={40}
                               aria-label={`Nom du tour ${roundNum}`}
-                              className="w-full max-w-[220px] rounded-md border border-transparent bg-transparent px-1 py-1 text-center text-xs font-bold uppercase tracking-wider text-emerald-800 hover:border-slate-300 focus:border-emerald-500 focus:bg-white focus:outline-none"
+                              className="w-full max-w-[220px] rounded-md border border-transparent bg-transparent px-1 py-1 text-center text-xs font-bold uppercase tracking-wider text-emerald-800 enabled:hover:border-slate-300 enabled:focus:border-emerald-500 enabled:focus:bg-white enabled:focus:outline-none disabled:cursor-not-allowed"
                             />
-                            <button
-                              type="button"
-                              onClick={() => openRoundClassification(roundNum)}
-                              className="inline-flex shrink-0 items-center rounded p-1 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-950"
-                              title={`Voir les matchs de classement liés à ${roundTitle}`}
-                              aria-label={`Voir le classement de ${roundTitle}`}
-                            >
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            </button>
+                            {activeTab === 'main' && (
+                              <button
+                                type="button"
+                                onClick={() => openRoundClassification(roundNum)}
+                                className="inline-flex shrink-0 items-center rounded p-1 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-950"
+                                title={`Voir les matchs de classement liés à ${roundTitle}`}
+                                aria-label={`Voir le classement de ${roundTitle}`}
+                              >
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">

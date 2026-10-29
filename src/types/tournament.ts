@@ -170,6 +170,8 @@ export interface Tournament {
   bracketSize?: 4 | 8 | 16 | 24 | 32;
   bracketEntrantCount?: number;
   bracketMode?: 'standard' | 'custom';
+  bracketLabelsEditable?: boolean;
+  consolanteLabelsEditable?: boolean;
   status: TournamentStatus;
   matchFormat: string; // e.g. "Format 1 (2 sets gagnants standard)" or "Format 2 (2 sets + super tie-break 10 pts)"
   courtsCount: number;
