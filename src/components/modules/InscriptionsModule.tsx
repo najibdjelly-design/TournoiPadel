@@ -249,6 +249,18 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
     onUpdateTournament({ ...tournament, pairs: updated });
   };
 
+  const handlePairStatusChange = (pairId: string, status: 'confirmed' | 'waiting_list') => {
+    const updated = tournament.pairs.map((pair) => {
+      if (pair.id !== pairId) return pair;
+      return {
+        ...pair,
+        status,
+        ...(status === 'waiting_list' ? { seedRank: undefined } : {}),
+      };
+    });
+    onUpdateTournament({ ...tournament, pairs: updated });
+  };
+
   // Safe delete with confirmation
   const removePair = (pairId: string) => {
     const target = tournament.pairs.find(p => p.id === pairId);
@@ -518,15 +530,22 @@ export const InscriptionsModule: React.FC<InscriptionsModuleProps> = ({
 
                       {/* Status */}
                       <td className="py-3 px-3 text-center">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        <select
+                          value={pair.status === 'confirmed' ? 'confirmed' : 'waiting_list'}
+                          onChange={(e) => {
+                            const status = e.target.value === 'confirmed' ? 'confirmed' : 'waiting_list';
+                            handlePairStatusChange(pair.id, status);
+                          }}
+                          aria-label={`Statut de la paire ${p1.firstName} ${p1.lastName} / ${p2.firstName} ${p2.lastName}`}
+                          className={`text-[10px] font-bold px-2 py-1 rounded-full border cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                             pair.status === 'confirmed'
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                               : 'bg-amber-50 text-amber-800 border-amber-200'
                           }`}
                         >
-                          {pair.status === 'confirmed' ? 'Confirmé' : 'Attente'}
-                        </span>
+                          <option value="confirmed">Confirmé</option>
+                          <option value="waiting_list">Attente</option>
+                        </select>
                       </td>
 
                       {/* Presence Check-in */}
