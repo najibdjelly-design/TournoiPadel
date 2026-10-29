@@ -319,6 +319,7 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
 
   // Push pool winners into main tableau bracket slots
   const handlePropagateQualifiersToBracket = () => {
+    if (tournament.bracketMatches.length > 0 && !tournament.bracketLabelsEditable) return;
     if (tournament.pools.length === 0 || tournament.bracketMatches.length === 0) {
       alert("Il faut d'abord générer des poules et un tableau final.");
       return;
@@ -410,8 +411,11 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
           {tournament.pools.length > 0 && (
             <button
               onClick={handlePropagateQualifiersToBracket}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors shadow-xs"
-              title="Transférer les qualifiés dans le tableau final"
+              disabled={tournament.bracketMatches.length > 0 && !tournament.bracketLabelsEditable}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 transition-colors shadow-xs"
+              title={tournament.bracketMatches.length > 0 && !tournament.bracketLabelsEditable
+                ? 'Activez l’édition du tableau final pour modifier les équipes affectées'
+                : 'Transférer les qualifiés dans le tableau final'}
             >
               <Trophy className="w-3.5 h-3.5 text-emerald-700" />
               <span>Qualifier dans Tableau &rarr;</span>

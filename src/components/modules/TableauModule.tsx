@@ -502,6 +502,23 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map((p) => [p.id, p]));
   const confirmedPairsCount = tournament.pairs.filter((pair) => pair.status === 'confirmed').length;
+  const canEditTableStructure = (table: 'main' | 'consolante') => {
+    const matches = table === 'main'
+      ? tournament.bracketMatches
+      : tournament.consolanteMatches;
+    const labelsEditable = table === 'main'
+      ? tournament.bracketLabelsEditable
+      : tournament.consolanteLabelsEditable;
+    return matches.length === 0 || Boolean(labelsEditable);
+  };
+  const canEditActiveTableStructure = canEditTableStructure(
+    activeTab === 'consolante' ? 'consolante' : 'main'
+  );
+  const canEditFullTournament =
+    canEditTableStructure('main') && canEditTableStructure('consolante');
+  const canClearActiveTable = activeTab === 'main'
+    ? canEditFullTournament
+    : canEditTableStructure('consolante');
   const resolvedOutcomeMatches = useMemo(
     () =>
       resolveMatchOutcomeReferences(
@@ -522,6 +539,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   // Generate full tournament with automatic matching classification matches (1 to N)
   const handleGenerateFullTournament = (size: 4 | 8 | 16 | 24 | 32 = bracketSize) => {
+    if (!canEditFullTournament) return;
     const configuredEntrants = Math.min(entrantCount, size);
     const confirmed = tournament.pairs.filter((p) => p.status === 'confirmed');
     if (configuredEntrants < 1 || confirmed.length < configuredEntrants) {
@@ -878,6 +896,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     }));
 
   const handleStartCustomEditor = () => {
+    if (!canEditTableStructure('main')) return;
     if (tournament.bracketMatches.length || tournament.consolanteMatches.length) {
       window.alert('Le tableau libre est réservé à la création d’un nouveau tableau.');
       return;
@@ -904,6 +923,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   };
 
   const saveCustomStructure = (matches: Match[]) => {
+    if (!canEditTableStructure('main')) return;
     const hasStartedMatch = [...tournament.bracketMatches, ...tournament.consolanteMatches].some(match =>
       match.status !== 'scheduled' || Boolean(match.score || match.winnerPairId)
     );
@@ -939,6 +959,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   };
 
   const handleAddCustomMatch = (round: number) => {
+    if (!canEditTableStructure('main')) return;
     if (!confirmCustomStructureEdit()) return;
     const match: Match = {
       id: `custom_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -956,6 +977,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   };
 
   const handleAddCustomRound = () => {
+    if (!canEditTableStructure('main')) return;
     if (!confirmCustomStructureEdit()) return;
     const nextRound = Math.max(0, ...tournament.bracketMatches.map(match => match.bracketRound ?? 1)) + 1;
     const match: Match = {
@@ -974,11 +996,13 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   };
 
   const handleRemoveCustomMatch = (matchId: string) => {
+    if (!canEditTableStructure('main')) return;
     if (!confirmCustomStructureEdit()) return;
     saveCustomStructure(tournament.bracketMatches.filter(match => match.id !== matchId));
   };
 
   const handleMoveCustomMatch = (matchId: string, targetRound: number, beforeMatchId?: string) => {
+    if (!canEditTableStructure('main')) return;
     if (matchId === beforeMatchId || !confirmCustomStructureEdit()) return;
     const sorted = [...tournament.bracketMatches].sort((a, b) =>
       (a.bracketRound ?? 1) - (b.bracketRound ?? 1) ||
@@ -1063,6 +1087,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   };
 
   const handleGenerateCustomClassification = () => {
+    if (!canEditFullTournament) return;
     if (!confirmCustomStructureEdit()) return;
     const roundMatches = new Map<number, Match[]>();
     tournament.bracketMatches.forEach(match => {
@@ -1119,6 +1144,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   // Clear bracket modal
   const handleConfirmDeleteBracket = () => {
+    if (!canClearActiveTable) return;
     if (activeTab === 'main') {
       onUpdateTournament({
         ...tournament,
@@ -1146,6 +1172,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     sourceMatchId?: string,
     sourceOutcome?: 'winner' | 'loser'
   ) => {
+    if (!canEditActiveTableStructure) return;
     let resolvedPairId = pairId;
     const outcomeReference = placeholder?.match(/^(Vainqueur|Perdant)\s+(?:Match\s*#|M#)\s*(\d+)\b/i);
     const targetMatch = [...tournament.bracketMatches, ...tournament.consolanteMatches]
@@ -1360,7 +1387,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     min={2}
                     max={32}
                     value={entrantCount}
+                    disabled={!canEditFullTournament}
                     onChange={(event) => {
+                      if (!canEditFullTournament) return;
                       const count = Math.max(2, Math.min(32, Number.parseInt(event.target.value, 10) || 2));
                       if (
                         tournament.consolanteMatches.length > 0 &&
@@ -1385,14 +1414,16 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                 <button
                   type="button"
                   onClick={handleAddCustomRound}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg"
+                  disabled={!canEditTableStructure('main')}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 rounded-lg"
                 >
                   <Plus className="h-3.5 w-3.5" /> Ajouter un tour
                 </button>
                 <button
                   type="button"
                   onClick={handleGenerateCustomClassification}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+                  disabled={!canEditFullTournament}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 rounded-lg"
                 >
                   <Sparkles className="h-3.5 w-3.5" /> Créer le classement
                 </button>
@@ -1401,7 +1432,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               <>
             <select
               value={bracketSize}
+              disabled={!canEditFullTournament}
               onChange={(e) => {
+                if (!canEditFullTournament) return;
                 const nextSize = parseInt(e.target.value) as 4 | 8 | 16 | 24 | 32;
                 const nextEntrants = Math.min(entrantCount, nextSize);
                 setBracketSize(nextSize);
@@ -1427,7 +1460,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                 min={1}
                 max={bracketSize}
                 value={entrantCount}
+                disabled={!canEditFullTournament}
                 onChange={(e) => {
+                  if (!canEditFullTournament) return;
                   const nextEntrants = Math.max(
                     1,
                     Math.min(bracketSize, Number.parseInt(e.target.value, 10) || 1)
@@ -1444,9 +1479,11 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
             </label>
             <button
               onClick={() => handleGenerateFullTournament(bracketSize)}
-              disabled={entrantCount > confirmedPairsCount}
+              disabled={!canEditFullTournament || entrantCount > confirmedPairsCount}
               title={
-                entrantCount > confirmedPairsCount
+                !canEditFullTournament
+                  ? 'Activez l’édition pour modifier la structure du tableau'
+                  : entrantCount > confirmedPairsCount
                   ? `Confirmez ${entrantCount - confirmedPairsCount} paire(s) supplémentaire(s)`
                   : undefined
               }
@@ -1459,6 +1496,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               <button
                 type="button"
                 onClick={handleStartCustomEditor}
+                disabled={!canEditTableStructure('main')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
               >
                 <GitBranch className="h-3.5 w-3.5" /> Construire librement
@@ -1471,7 +1509,8 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               <button
                 type="button"
                 onClick={() => setIsClearTableauModalOpen(true)}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors"
+                disabled={!canClearActiveTable}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50 border border-rose-200 rounded-lg transition-colors"
                 title="Vider le tableau avec confirmation"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -1488,6 +1527,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     ? Boolean(tournament.bracketLabelsEditable)
                     : Boolean(tournament.consolanteLabelsEditable)
                 }
+                title="Autoriser la modification des tours et de leurs étiquettes. Les scores restent modifiables lorsque le tableau est verrouillé."
                 className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border rounded-lg transition-colors ${
                   (activeTab === 'main'
                     ? tournament.bracketLabelsEditable
@@ -1876,7 +1916,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                       return (
                         <article
                           key={match.id}
-                          draggable={match.status === 'scheduled'}
+                          draggable={canEditTableStructure('main') && match.status === 'scheduled'}
                           onDragStart={() => setDraggedMatchId(match.id)}
                           onDragEnd={() => setDraggedMatchId(null)}
                           onDragOver={event => event.preventDefault()}
@@ -1899,7 +1939,8 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveCustomMatch(match.id)}
-                                className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700"
+                                disabled={!canEditTableStructure('main')}
+                                className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
                                 aria-label={`Supprimer le match ${match.matchNumber}`}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -1917,13 +1958,14 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                             <button
                               key={slot}
                               type="button"
+                              disabled={!canEditTableStructure('main')}
                               onClick={() => setSlotModalInfo({
                                 matchId: match.id,
                                 slot,
                                 roundName: match.roundName,
                                 matchNumber: match.matchNumber,
                               })}
-                              className="block w-full truncate border-b border-slate-100 px-3 py-2 text-left text-xs text-slate-700 last:border-0 hover:bg-emerald-50"
+                              className="block w-full truncate border-b border-slate-100 px-3 py-2 text-left text-xs text-slate-700 last:border-0 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:hover:bg-white"
                             >
                               {(slot === 'pair1' ? p1 : p2)
                                 ? `${(slot === 'pair1' ? p1 : p2)!.player1.firstName} ${(slot === 'pair1' ? p1 : p2)!.player1.lastName} / ${(slot === 'pair1' ? p1 : p2)!.player2.firstName} ${(slot === 'pair1' ? p1 : p2)!.player2.lastName}`
@@ -1947,7 +1989,8 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     <button
                       type="button"
                       onClick={() => handleAddCustomMatch(roundNum)}
-                      className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 text-xs font-bold text-slate-600 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-800"
+                      disabled={!canEditTableStructure('main')}
+                      className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 text-xs font-bold text-slate-600 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Plus className="h-4 w-4" /> Ajouter une case match
                     </button>
@@ -2001,8 +2044,8 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               </p>
               <button
                 onClick={() => handleGenerateFullTournament(bracketSize)}
-                disabled={entrantCount > confirmedPairsCount}
-                className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors"
+                disabled={!canEditFullTournament || entrantCount > confirmedPairsCount}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 rounded-xl shadow-xs transition-colors"
               >
                 Générer Tournoi Complet ({entrantCount}/{bracketSize})
               </button>
@@ -2114,20 +2157,25 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               <div className="p-2 space-y-1">
                                 {/* Pair 1 Slot */}
                                 <div
-                                  onClick={() =>
+                                  onClick={canEditActiveTableStructure ? () =>
                                     setSlotModalInfo({
                                       matchId: match.id,
                                       slot: 'pair1',
                                       roundName: match.roundName,
                                       matchNumber: match.matchNumber,
                                     })
-                                  }
-                                  className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                                  : undefined}
+                                  aria-disabled={!canEditActiveTableStructure}
+                                  className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
+                                    canEditActiveTableStructure ? 'cursor-pointer' : 'cursor-not-allowed'
+                                  } ${
                                     match.winnerPairId === match.pair1Id
                                       ? 'bg-emerald-50 text-emerald-900 font-extrabold border border-emerald-300'
-                                      : 'hover:bg-slate-100 text-slate-800'
+                                      : canEditActiveTableStructure ? 'hover:bg-slate-100 text-slate-800' : 'text-slate-800'
                                   }`}
-                                  title="Cliquer pour modifier cette position"
+                                  title={canEditActiveTableStructure
+                                    ? 'Cliquer pour modifier cette position'
+                                    : 'Activez l’édition pour modifier cette position'}
                                 >
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     {p1?.seedRank && (
@@ -2159,20 +2207,25 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
                                 {/* Pair 2 Slot */}
                                 <div
-                                  onClick={() =>
+                                  onClick={canEditActiveTableStructure ? () =>
                                     setSlotModalInfo({
                                       matchId: match.id,
                                       slot: 'pair2',
                                       roundName: match.roundName,
                                       matchNumber: match.matchNumber,
                                     })
-                                  }
-                                  className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                                  : undefined}
+                                  aria-disabled={!canEditActiveTableStructure}
+                                  className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
+                                    canEditActiveTableStructure ? 'cursor-pointer' : 'cursor-not-allowed'
+                                  } ${
                                     match.winnerPairId === match.pair2Id
                                       ? 'bg-emerald-50 text-emerald-900 font-extrabold border border-emerald-300'
-                                      : 'hover:bg-slate-100 text-slate-800'
+                                      : canEditActiveTableStructure ? 'hover:bg-slate-100 text-slate-800' : 'text-slate-800'
                                   }`}
-                                  title="Cliquer pour modifier cette position"
+                                  title={canEditActiveTableStructure
+                                    ? 'Cliquer pour modifier cette position'
+                                    : 'Activez l’édition pour modifier cette position'}
                                 >
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     {p2?.seedRank && (
