@@ -138,7 +138,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       return;
     }
 
-    const supabaseUrl = env.SUPABASE_URL ?? env.VITE_SUPABASE_URL;
+    const supabaseUrl = env.VITE_SUPABASE_URL ?? env.SUPABASE_URL;
     const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !serviceRoleKey) {
       console.error('Configuration du partage participant manquante côté serveur.', {
