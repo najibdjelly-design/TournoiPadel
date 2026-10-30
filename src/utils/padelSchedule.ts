@@ -684,7 +684,16 @@ export function createConflictFreeSchedule(
     match.status !== 'in_progress' &&
     match.status !== 'warmup'
   );
-  const scheduleReadyMatches = (pending: Match[], startBarrier: number): boolean => {
+  const scheduleReadyMatches = (
+    pending: Match[],
+    startBarrier: number,
+    hooks: {
+      isCandidate?: (match: Match) => boolean;
+      barrierFor?: (match: Match) => number;
+      priorityOf?: (match: Match) => number;
+      onScheduled?: (match: Match) => void;
+    } = {}
+  ): boolean => {
     while (pending.length > 0) {
       let best: {
         match: Match;
@@ -693,6 +702,7 @@ export function createConflictFreeSchedule(
       } | undefined;
 
       for (const match of pending) {
+        if (hooks.isCandidate && !hooks.isCandidate(match)) continue;
         const pair1 = participantBySlot.get(slotKey(match.id, 'pair1'));
         const pair2 = participantBySlot.get(slotKey(match.id, 'pair2'));
         if (!pair1 || !pair2) continue;
@@ -708,13 +718,18 @@ export function createConflictFreeSchedule(
         for (const court of courts) {
           const startAt = Math.max(
             pairReadyAt,
-            startBarrier,
+            hooks.barrierFor ? hooks.barrierFor(match) : startBarrier,
             courtAvailableAt.get(court.id) ?? startMs
           );
+          const priority = hooks.priorityOf?.(match) ?? 0;
+          const bestPriority = best ? hooks.priorityOf?.(best.match) ?? 0 : 0;
           if (
             !best ||
             startAt < best.startAt ||
-            (startAt === best.startAt && match.matchNumber < best.match.matchNumber)
+            (startAt === best.startAt && (
+              priority > bestPriority ||
+              (priority === bestPriority && match.matchNumber < best.match.matchNumber)
+            ))
           ) {
             best = { match, court, startAt };
           }
@@ -747,6 +762,7 @@ export function createConflictFreeSchedule(
         true
       );
       pending.splice(pending.findIndex(match => match.id === best!.match.id), 1);
+      hooks.onScheduled?.(best.match);
     }
 
     return true;
@@ -761,38 +777,43 @@ export function createConflictFreeSchedule(
     stageBarrier = Math.max(stageBarrier, ...phaseEnds as number[]);
   }
 
+  // Main rounds run one after the other; classification matches fill free
+  // courts as soon as their teams are known, with lower priority than the main round.
   const knockoutStages = getBracketScheduleStages(bracketMatches, consolanteMatches);
-  const scheduledClassificationIds = new Set<string>();
-  for (const stage of knockoutStages) {
-    const mainRoundPending = scheduledPending.filter(match =>
-      stage.bracketMatches.some(roundMatch => roundMatch.id === match.id)
-    );
-    if (!scheduleReadyMatches(mainRoundPending, stageBarrier)) return assignments;
-
-    const mainRoundEnds = stage.bracketMatches.map(getMatchEndAt);
-    if (mainRoundEnds.some(endAt => endAt === undefined)) return assignments;
-    stageBarrier = Math.max(stageBarrier, ...mainRoundEnds as number[]);
-
-    const classificationMatches = stage.classificationMatches.filter(
-      match => !scheduledClassificationIds.has(match.id)
-    );
-    const classificationPending = scheduledPending.filter(match =>
-      classificationMatches.some(classificationMatch => classificationMatch.id === match.id)
-    );
-    if (!scheduleReadyMatches(classificationPending, stageBarrier)) return assignments;
-
-    for (const match of classificationMatches) scheduledClassificationIds.add(match.id);
-    const classificationEnds = classificationMatches.map(getMatchEndAt);
-    if (classificationEnds.some(endAt => endAt === undefined)) return assignments;
-    if (classificationEnds.length) {
-      stageBarrier = Math.max(stageBarrier, ...classificationEnds as number[]);
+  const knockoutPending = scheduledPending.filter(match => match.type !== 'pool');
+  const stageIndexByMatchId = new Map<string, number>();
+  knockoutStages.forEach((stage, index) => {
+    for (const match of stage.bracketMatches) stageIndexByMatchId.set(match.id, index);
+  });
+  const classificationStageById = new Map<string, number>();
+  knockoutStages.forEach((stage, index) => {
+    for (const match of stage.classificationMatches) classificationStageById.set(match.id, index);
+  });
+  let currentStage = 0;
+  let mainRoundBarrier = stageBarrier;
+  const advanceStages = () => {
+    while (currentStage < knockoutStages.length) {
+      const stageMatches = knockoutStages[currentStage].bracketMatches;
+      if (stageMatches.some(match => knockoutPending.includes(match))) return;
+      const ends = stageMatches
+        .map(getMatchEndAt)
+        .filter((endAt): endAt is number => endAt !== undefined);
+      if (ends.length) mainRoundBarrier = Math.max(mainRoundBarrier, ...ends);
+      currentStage++;
     }
-  }
-
-  const remainingConsolanteMatches = scheduledPending.filter(
-    match => match.type === 'consolante' && !scheduledClassificationIds.has(match.id)
-  );
-  scheduleReadyMatches(remainingConsolanteMatches, stageBarrier);
+  };
+  advanceStages();
+  scheduleReadyMatches(knockoutPending, stageBarrier, {
+    isCandidate: match => {
+      const stageIndex = stageIndexByMatchId.get(match.id);
+      return stageIndex === undefined || stageIndex === currentStage;
+    },
+    barrierFor: match => stageIndexByMatchId.has(match.id) ? mainRoundBarrier : stageBarrier,
+    priorityOf: match => stageIndexByMatchId.has(match.id)
+      ? 1000
+      : 500 - (classificationStageById.get(match.id) ?? 400),
+    onScheduled: advanceStages,
+  });
 
   return assignments;
 }

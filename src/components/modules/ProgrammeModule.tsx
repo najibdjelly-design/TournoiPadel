@@ -69,6 +69,18 @@ function timeToMinutes(time: string): number | null {
   return hours * 60 + minutes;
 }
 
+function getScheduledStartMinutes(match: Match, scheduleDate: string): number | null {
+  const timestamp = match.scheduledAt ? Date.parse(match.scheduledAt) : NaN;
+  if (Number.isFinite(timestamp)) {
+    const storedDate = new Date(timestamp);
+    const storedTime = `${storedDate.getHours().toString().padStart(2, '0')}:${storedDate.getMinutes().toString().padStart(2, '0')}`;
+    if (storedTime === match.scheduledTime) return timestamp / 60_000;
+  }
+  if (!match.scheduledTime || timeToMinutes(match.scheduledTime) === null) return null;
+  const fallback = Date.parse(`${scheduleDate}T${match.scheduledTime.padStart(5, '0')}:00`);
+  return Number.isFinite(fallback) ? fallback / 60_000 : null;
+}
+
 export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   tournament,
   onUpdateTournament,
@@ -144,8 +156,10 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
     const scheduledTimes = scheduledMatches
       .map(match => match.scheduledTime!)
       .filter(time => timeToMinutes(time) !== null);
+    const startOffset = (time: string) =>
+      ((timeToMinutes(time) ?? 0) - startMinutes + 1440) % 1440;
     return [...new Set([...regularSlots, ...scheduledTimes])].sort(
-      (a, b) => (timeToMinutes(a) ?? 0) - (timeToMinutes(b) ?? 0)
+      (a, b) => startOffset(a) - startOffset(b)
     );
   }, [startTime, slotDuration, allMatches]);
 
@@ -408,7 +422,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
     const warnings: string[] = [];
     const getScheduledBounds = (matches: Match[]) => {
       const intervals = matches.flatMap(match => {
-        const start = match.scheduledTime ? timeToMinutes(match.scheduledTime) : null;
+        const start = getScheduledStartMinutes(match, tournament.dates.start || new Date().toISOString().slice(0, 10));
         return start === null
           ? []
           : [{ start, end: start + (match.durationMinutes ?? slotDuration) }];
@@ -446,20 +460,11 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
     );
     for (const stage of bracketStages) {
       const mainRoundBounds = getScheduledBounds(stage.bracketMatches);
-      if (mainRoundBounds) {
-        if (stageEnd >= 0 && mainRoundBounds.start < stageEnd) {
-          warnings.push(`Le tour ${stage.round} commence avant la fin du tour ou des matchs de classement précédents.`);
-        }
-        stageEnd = Math.max(stageEnd, mainRoundBounds.end);
+      if (!mainRoundBounds) continue;
+      if (stageEnd >= 0 && mainRoundBounds.start < stageEnd) {
+        warnings.push(`Le tour ${stage.round} commence avant la fin du tour précédent.`);
       }
-
-      const classificationBounds = getScheduledBounds(stage.classificationMatches);
-      if (classificationBounds) {
-        if (mainRoundBounds && classificationBounds.start < mainRoundBounds.end) {
-          warnings.push(`Les matchs de classement du tour ${stage.round} commencent avant la fin du tour.`);
-        }
-        stageEnd = Math.max(stageEnd, classificationBounds.end);
-      }
+      stageEnd = Math.max(stageEnd, mainRoundBounds.end);
     }
 
     const allScheduled = allMatches
@@ -468,7 +473,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       )
       .map(match => ({
         match,
-        start: timeToMinutes(match.scheduledTime),
+        start: getScheduledStartMinutes(match, tournament.dates.start || new Date().toISOString().slice(0, 10)),
         duration: match.durationMinutes ?? slotDuration,
       }))
       .filter((item): item is typeof item & { start: number } => item.start !== null);
@@ -593,14 +598,18 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       ...updatedConsolante,
     ].filter(match => match.scheduledTime && match.courtId);
     const totalScheduled = allScheduledAfterUpdate.length;
-    const endTime = allScheduledAfterUpdate.reduce((latest, match) => {
-      const minutes = timeToMinutes(match.scheduledTime!) ?? -1;
-      return minutes > latest.minutes
-        ? { time: match.scheduledTime!, minutes }
-        : latest;
-    }, { time: startTime, minutes: timeToMinutes(startTime) ?? 0 }).time;
+    const scheduleDate = tournament.dates.start || new Date().toISOString().slice(0, 10);
+    const startMinutes = timeToMinutes(startTime) ?? 0;
+    const scheduledStarts = allScheduledAfterUpdate
+      .map(match => getScheduledStartMinutes(match, scheduleDate))
+      .filter((start): start is number => start !== null);
+    const spanMinutes = scheduledStarts.length
+      ? Math.max(...scheduledStarts) - Math.min(...scheduledStarts) + slotDuration
+      : 0;
+    const endMinutes = Math.round(startMinutes + spanMinutes);
+    const endTime = `${Math.floor((endMinutes % 1440) / 60).toString().padStart(2, '0')}:${(endMinutes % 60).toString().padStart(2, '0')}${endMinutes >= 1440 ? ' (J+1)' : ''}`;
     setOptimizationReport(totalScheduled > 0
-      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Chaque tour s’enchaîne après les matchs de classement concernés, en utilisant les terrains disponibles dès que possible.`
+      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Chaque tour démarre dès la fin du précédent ; les matchs de classement occupent les terrains libres.`
       : 'Aucun match ne peut encore être programmé : il faut que les deux paires soient connues pour chaque rencontre.'
     );
     setShowOptimizerPanel(true);
@@ -634,7 +643,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
             Programme des Matchs & Affectation des Pistes
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Début et durée personnalisables · progression par tours · matchs de classement avant le tour suivant · terrains utilisés dès qu’ils sont libres
+            Chaque tour démarre dès la fin du précédent · les matchs de classement remplissent les terrains libres · aucun terrain inutilement vide
           </p>
         </div>
 
@@ -675,7 +684,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
           <button
             onClick={handleGenerateOptimalSchedule}
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs"
-            title="Planifie les tours dans l’ordre et enchaîne les matchs de classement avant le tour suivant"
+            title="Planifie chaque tour dès la fin du précédent et place les matchs de classement sur les terrains libres"
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>Proposition Optimale</span>
@@ -747,7 +756,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
           <div className="flex items-center gap-2">
             <CheckCheck className="w-4 h-4 text-emerald-600" />
             <span>
-              <strong>Progression vérifiée :</strong> les tours et matchs de classement s’enchaînent dans l’ordre prévu. Aucun conflit détecté.
+              <strong>Progression vérifiée :</strong> les tours s’enchaînent dans l’ordre prévu. Aucun conflit détecté.
             </span>
           </div>
           <span className="font-mono text-[11px] text-emerald-800 font-semibold">
@@ -940,7 +949,12 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                     >
                       {/* Slot Header */}
                       <div className="flex items-center justify-between mb-1.5 font-mono text-[11px]">
-                        <span className="font-bold text-slate-800">{time}</span>
+                        <span className="font-bold text-slate-800">
+                          {time}
+                          {(timeToMinutes(time) ?? 0) < (timeToMinutes(startTime) ?? 0) && (
+                            <span className="ml-1 text-[10px] font-semibold text-amber-700">J+1</span>
+                          )}
+                        </span>
                         {match ? (
                           <div className="flex items-center gap-1.5">
                             <span
