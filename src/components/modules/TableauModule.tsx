@@ -488,6 +488,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
   const [slotTab, setSlotTab] = useState<'pairs' | 'pools' | 'winners' | 'losers' | 'custom'>('pairs');
   const [slotPairSearch, setSlotPairSearch] = useState('');
+  const [selectedSourceRound, setSelectedSourceRound] = useState<number | null>(null);
   const [customPlaceholder, setCustomPlaceholder] = useState('');
   const [isClearTableauModalOpen, setIsClearTableauModalOpen] = useState(false);
   const [draggedMatchId, setDraggedMatchId] = useState<string | null>(null);
@@ -499,6 +500,10 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
         Math.min(16, tournament.pairs.filter((pair) => pair.status === 'confirmed').length || 16)
     );
   }, [tournament.id]);
+
+  useEffect(() => {
+    setSelectedSourceRound(null);
+  }, [slotModalInfo?.matchId, slotModalInfo?.slot]);
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map((p) => [p.id, p]));
   const confirmedPairsCount = tournament.pairs.filter((pair) => pair.status === 'confirmed').length;
@@ -1259,6 +1264,61 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       )
     : undefined;
   const currentSlotRound = currentSlotMatch?.bracketRound || 1;
+  const slotSourceMatches = tournament.bracketMatches.filter(match => match.type !== 'consolante');
+  const slotSourceRounds = Array.from(
+    new Set(slotSourceMatches.map(match => match.bracketRound ?? 1))
+  ).sort((a, b) => a - b);
+  const filteredSlotSourceMatches = slotSourceMatches.filter(
+    match => selectedSourceRound === null || (match.bracketRound ?? 1) === selectedSourceRound
+  );
+  const sourceMatchByNumber = new Map(slotSourceMatches.map(match => [match.matchNumber, match]));
+  const sourceAssignments = new Map<string, Array<{
+    targetMatchId: string;
+    targetMatchNumber: number;
+    slot: 'pair1' | 'pair2';
+  }>>();
+  [...tournament.bracketMatches, ...tournament.consolanteMatches].forEach(targetMatch => {
+    (['pair1', 'pair2'] as const).forEach(slot => {
+      const sourceMatchId = targetMatch[`${slot}SourceMatchId`];
+      const sourceOutcome = targetMatch[`${slot}SourceOutcome`];
+      const placeholderMatch = targetMatch[`${slot}Placeholder`]?.match(
+        /^(Vainqueur|Perdant)\s+(?:Match\s*#|M#)\s*(\d+)\b/i
+      );
+      const sourceMatch = sourceMatchId
+        ? slotSourceMatches.find(match => match.id === sourceMatchId)
+        : placeholderMatch
+          ? sourceMatchByNumber.get(Number(placeholderMatch[2]))
+          : undefined;
+      const placeholderOutcome = placeholderMatch
+        ? placeholderMatch[1].toLowerCase() === 'vainqueur' ? 'winner' : 'loser'
+        : undefined;
+      const outcome = sourceOutcome ?? placeholderOutcome;
+      if (!sourceMatch || !outcome) return;
+      const key = `${sourceMatch.id}:${outcome}`;
+      const assignments = sourceAssignments.get(key) ?? [];
+      assignments.push({
+        targetMatchId: targetMatch.id,
+        targetMatchNumber: targetMatch.matchNumber,
+        slot,
+      });
+      sourceAssignments.set(key, assignments);
+    });
+  });
+  const getSourceAssignmentState = (sourceMatch: Match, outcome: 'winner' | 'loser') => {
+    const assignments = sourceAssignments.get(`${sourceMatch.id}:${outcome}`) ?? [];
+    return {
+      assignedHere: assignments.some(
+        assignment =>
+          assignment.targetMatchId === slotModalInfo?.matchId &&
+          assignment.slot === slotModalInfo.slot
+      ),
+      assignedElsewhere: assignments.find(
+        assignment =>
+          assignment.targetMatchId !== slotModalInfo?.matchId ||
+          assignment.slot !== slotModalInfo.slot
+      ),
+    };
+  };
 
   const pairsAlreadyInThisRound = useMemo(() => {
     const map = new Map<string, number>();
@@ -2357,6 +2417,51 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
 
             {/* Modal Body */}
             <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {(slotTab === 'winners' || slotTab === 'losers') && (
+                <div className="space-y-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Filtrer par tour
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSourceRound(null)}
+                      aria-pressed={selectedSourceRound === null}
+                      className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors ${
+                        selectedSourceRound === null
+                          ? 'bg-slate-800 text-white'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      Tous les tours
+                    </button>
+                    {slotSourceRounds.map(round => {
+                      const roundMatches = slotSourceMatches.filter(
+                        match => (match.bracketRound ?? 1) === round
+                      );
+                      const roundLabel = roundMatches[0]?.bracketRoundName ||
+                        roundMatches[0]?.roundName.replace(/\s*\(#\d+\)$/, '') ||
+                        `Tour ${round}`;
+                      return (
+                        <button
+                          key={round}
+                          type="button"
+                          onClick={() => setSelectedSourceRound(round)}
+                          aria-pressed={selectedSourceRound === round}
+                          className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors ${
+                            selectedSourceRound === round
+                              ? 'bg-emerald-600 text-white'
+                              : 'border border-slate-200 bg-white text-slate-600 hover:bg-emerald-50'
+                          }`}
+                        >
+                          {roundLabel} ({roundMatches.length})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {slotTab === 'pairs' && (
                 <div className="space-y-3">
                   <div className="relative">
@@ -2430,12 +2535,14 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     Sélectionnez un match dont le vainqueur sera automatiquement positionné ici :
                   </p>
                   <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    {tournament.bracketMatches
-                      .filter((m) => m.type !== 'consolante')
-                      .map((m) => (
+                    {filteredSlotSourceMatches.map((m) => {
+                      const assignment = getSourceAssignmentState(m, 'winner');
+                      const isDisabled = Boolean(assignment.assignedElsewhere) && !assignment.assignedHere;
+                      return (
                         <button
                           key={m.id}
                           type="button"
+                          disabled={isDisabled}
                           onClick={() => {
                             const hasWinner = m.status === 'completed' && m.winnerPairId;
                             handleAssignToSlot(
@@ -2449,7 +2556,11 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               'winner'
                             );
                           }}
-                          className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 text-left transition-colors flex items-center justify-between text-xs"
+                          className={`w-full p-2.5 rounded-xl border text-left transition-colors flex items-center justify-between text-xs ${
+                            isDisabled
+                              ? 'border-slate-200 bg-slate-100 opacity-60 cursor-not-allowed'
+                              : 'border-slate-200 hover:border-emerald-400 hover:bg-emerald-50'
+                          }`}
                         >
                           <div>
                             <span className="font-bold text-slate-900 block">
@@ -2461,9 +2572,23 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                 : 'En attente de score'}
                             </span>
                           </div>
-                          <span className="text-emerald-700 font-bold text-xs">Lier vainqueur</span>
+                          <span className={`font-bold text-xs ${
+                            isDisabled ? 'text-slate-500' : 'text-emerald-700'
+                          }`}>
+                            {assignment.assignedHere
+                              ? 'Déjà lié ici'
+                              : assignment.assignedElsewhere
+                                ? `Déjà affecté (M#${assignment.assignedElsewhere.targetMatchNumber})`
+                                : 'Lier vainqueur'}
+                          </span>
                         </button>
-                      ))}
+                      );
+                    })}
+                    {filteredSlotSourceMatches.length === 0 && (
+                      <p className="py-4 text-center text-xs text-slate-500">
+                        Aucun match dans ce tour.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -2474,12 +2599,14 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                     Sélectionnez un match dont le perdant sera automatiquement positionné ici :
                   </p>
                   <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    {tournament.bracketMatches
-                      .filter((m) => m.type !== 'consolante')
-                      .map((m) => (
+                    {filteredSlotSourceMatches.map((m) => {
+                      const assignment = getSourceAssignmentState(m, 'loser');
+                      const isDisabled = Boolean(assignment.assignedElsewhere) && !assignment.assignedHere;
+                      return (
                         <button
                           key={m.id}
                           type="button"
+                          disabled={isDisabled}
                           onClick={() => {
                             if (m.status === 'completed' && m.winnerPairId) {
                               const loserId =
@@ -2503,7 +2630,11 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               );
                             }
                           }}
-                          className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50 text-left transition-colors flex items-center justify-between text-xs"
+                          className={`w-full p-2.5 rounded-xl border text-left transition-colors flex items-center justify-between text-xs ${
+                            isDisabled
+                              ? 'border-slate-200 bg-slate-100 opacity-60 cursor-not-allowed'
+                              : 'border-slate-200 hover:border-amber-400 hover:bg-amber-50'
+                          }`}
                         >
                           <div>
                             <span className="font-bold text-slate-900 block">
@@ -2515,9 +2646,23 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                                 : 'En attente de score'}
                             </span>
                           </div>
-                          <span className="text-amber-700 font-bold text-xs">Lier perdant</span>
+                          <span className={`font-bold text-xs ${
+                            isDisabled ? 'text-slate-500' : 'text-amber-700'
+                          }`}>
+                            {assignment.assignedHere
+                              ? 'Déjà lié ici'
+                              : assignment.assignedElsewhere
+                                ? `Déjà affecté (M#${assignment.assignedElsewhere.targetMatchNumber})`
+                                : 'Lier perdant'}
+                          </span>
                         </button>
-                      ))}
+                      );
+                    })}
+                    {filteredSlotSourceMatches.length === 0 && (
+                      <p className="py-4 text-center text-xs text-slate-500">
+                        Aucun match dans ce tour.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
