@@ -952,7 +952,6 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     onUpdateTournament({
       ...tournament,
       bracketMode: 'custom',
-      bracketLabelsEditable: false,
       bracketMatches: connectAdjacentBracketMatches(resetMatches),
       consolanteMatches: [],
     });
