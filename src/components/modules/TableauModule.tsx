@@ -54,11 +54,13 @@ function findCustomFinalPlacement(
 
   const championshipMatch = finalRound.find(match =>
     match.targetRankWinner === 1 ||
-    [match.pair1Placeholder, match.pair2Placeholder].some(placeholder => /vainqueur/i.test(placeholder ?? ''))
+    [match.pair1Placeholder, match.pair2Placeholder].some(placeholder => /vainqueur/i.test(placeholder ?? '')) ||
+    /finale?|championnat/i.test(`${match.bracketRoundName ?? ''} ${match.roundName}`)
   );
   const thirdPlaceMatch = finalRound.find(match =>
     match.targetRankWinner === 3 ||
-    [match.pair1Placeholder, match.pair2Placeholder].some(placeholder => /perdant/i.test(placeholder ?? ''))
+    [match.pair1Placeholder, match.pair2Placeholder].some(placeholder => /perdant|3\s*(?:e|ème)?\s*[-–à]\s*4|petite finale/i.test(placeholder ?? '')) ||
+    /3\s*(?:e|ème)?\s*[-–à]\s*4|petite finale|third place/i.test(`${match.bracketRoundName ?? ''} ${match.roundName}`)
   );
   if (!championshipMatch || !thirdPlaceMatch || championshipMatch.id === thirdPlaceMatch.id) {
     return undefined;
@@ -180,11 +182,18 @@ function connectAdjacentBracketMatches(matches: Match[]): Match[] {
     const nextMatchSlot: 'pair1' | 'pair2' = index % 2 === 0 ? 'pair1' : 'pair2';
     const selectedWinnerRoute = selectedWinnerRoutes.get(match.id);
     const selectedLoserRoute = selectedLoserRoutes.get(match.id);
+    const isChampionshipMatch = parallelFinalPlacement?.championshipMatch.id === match.id;
     return {
       ...match,
       matchNumber: matchNumbers.get(match.id) ?? match.matchNumber,
       roundName: `${match.bracketRoundName || `Tour ${round}`} (#${index + 1})`,
       bracketSlotIndex: index,
+      targetRankWinner: match.targetRankWinner ??
+        (isChampionshipMatch ? 1 : isThirdPlaceMatch && parallelFinalPlacement ? 3 : undefined),
+      targetRankLoser: match.targetRankLoser ??
+        (isChampionshipMatch ? 2 : isThirdPlaceMatch && parallelFinalPlacement ? 4 : undefined),
+      classificationRankRange: match.classificationRankRange ??
+        (isChampionshipMatch ? '1-2' : isThirdPlaceMatch && parallelFinalPlacement ? '3-4' : undefined),
       nextMatchId: selectedWinnerRoute?.targetId ?? nextMatch?.id,
       nextMatchSlot: selectedWinnerRoute?.slot ?? (nextMatch ? nextMatchSlot : undefined),
       loserNextMatchId: selectedLoserRoute?.targetId ??
@@ -479,7 +488,10 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   );
   const [entrantCount, setEntrantCount] = useState(
     tournament.bracketEntrantCount ??
-      Math.min(16, tournament.pairs.filter((pair) => pair.status === 'confirmed').length || 16)
+      Math.min(
+        tournament.bracketSize ?? 24,
+        tournament.pairs.filter((pair) => pair.status === 'confirmed').length || tournament.bracketSize || 24
+      )
   );
   const [consolanteCategory, setConsolanteCategory] = useState<'all' | '5-8' | '9-16' | '17-24'>('all');
   const [isCopiedStandings, setIsCopiedStandings] = useState(false);
@@ -503,9 +515,12 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     setBracketSize(tournament.bracketSize ?? 24);
     setEntrantCount(
       tournament.bracketEntrantCount ??
-        Math.min(16, tournament.pairs.filter((pair) => pair.status === 'confirmed').length || 16)
+        Math.min(
+          tournament.bracketSize ?? 24,
+          tournament.pairs.filter((pair) => pair.status === 'confirmed').length || tournament.bracketSize || 24
+        )
     );
-  }, [tournament.id]);
+  }, [tournament.id, tournament.bracketEntrantCount, tournament.bracketSize, tournament.pairs]);
 
   useEffect(() => {
     setSelectedSourceRound(null);
@@ -1156,7 +1171,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     );
     if (!result) {
       window.alert(
-        'Impossible de générer un classement exact : vérifie les équipes inscrites, les liaisons des matchs et les tours à classer (2, 4, 8, 16, 24 ou 32 matchs). Une finale et un match 3e-4e peuvent être placés dans le même tour.'
+        `Impossible de générer un classement exact pour ${entrantCount} équipe(s) avec ${tournament.bracketMatches.length} match(s) dans le tableau principal. Vérifie que le nombre d’équipes sélectionné correspond aux matchs du tableau et que le dernier tour contient la finale et, le cas échéant, le match 3e-4e (avec les deux demi-finales au tour précédent).`
       );
       return;
     }

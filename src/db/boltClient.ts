@@ -778,7 +778,24 @@ class BoltDatabaseClient {
         }
       )
       .subscribe((status, error) => {
+        if (status === 'SUBSCRIBED') {
+          if (this.lastError?.startsWith('Erreur du canal Supabase Realtime')) {
+            this.clearError();
+          }
+          return;
+        }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          const errorMessage = error instanceof Error
+            ? error.message
+            : typeof error === 'string'
+              ? error
+              : JSON.stringify(error ?? status);
+          if (/socket closed\s*:?\s*1000\b|code\s*[:=]\s*1000\b/i.test(errorMessage)) {
+            if (this.lastError?.startsWith('Erreur du canal Supabase Realtime')) {
+              this.clearError();
+            }
+            return;
+          }
           this.reportError('Erreur du canal Supabase Realtime', error ?? status);
         }
       });
