@@ -26,7 +26,6 @@ import { TournamentsManagerModal } from './components/modals/TournamentsManagerM
 import { computePoolStandings } from './utils/padelCalculations';
 import {
   compactConsolanteLoserSlots,
-  rescheduleMatchesFromNow,
   resolveMatchOutcomeReferences,
   resolveBracketByes,
 } from './utils/padelSchedule';
@@ -413,22 +412,6 @@ export default function App() {
     );
     updated.bracketMatches = resolvedByeOutcomes.bracketMatches;
     updated.consolanteMatches = resolvedByeOutcomes.consolanteMatches;
-
-    if (updated.courts.length > 0) {
-      const rescheduled = rescheduleMatchesFromNow(
-        updated.pools,
-        updated.bracketMatches,
-        updated.consolanteMatches,
-        updated.courts,
-        updated.firstMatchTime ?? '09:00',
-        updated.slotDurationMinutes ?? 75,
-        {
-          scheduleDate: updated.dates.start,
-          currentTime: completedAt,
-        }
-      );
-      updated = { ...updated, ...rescheduled };
-    }
 
     boltClient.saveTournament(updated);
   };

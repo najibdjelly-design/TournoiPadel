@@ -9,7 +9,6 @@ import {
   isMatchPlayable,
   isMatchSchedulable,
   normalizeSixteenTeam24Draw,
-  rescheduleMatchesFromNow,
   resolveBracketByes,
 } from '../../utils/padelSchedule';
 import {
@@ -255,26 +254,6 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       bracketMatches: updateMatchInArray(tournament.bracketMatches),
       consolanteMatches: updateMatchInArray(tournament.consolanteMatches),
     };
-
-    if (
-      tournament.courts.length > 0 &&
-      (status === 'in_progress' || status === 'warmup' || status === 'completed')
-    ) {
-      const rescheduled = rescheduleMatchesFromNow(
-        updated.pools,
-        updated.bracketMatches,
-        updated.consolanteMatches,
-        updated.courts,
-        startTime,
-        slotDuration,
-        {
-          scheduleDate: updated.dates.start,
-          currentTime: statusChangedAt,
-        }
-      );
-      onUpdateTournament({ ...updated, ...rescheduled });
-      return;
-    }
 
     onUpdateTournament(updated);
   };
