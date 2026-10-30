@@ -157,10 +157,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       .select('data')
       .eq('public_share_token', token)
       .maybeSingle();
-    if (error) {
-      console.error('Hôte Supabase utilisé :', new URL(supabaseUrl).hostname.slice(0, 8));
-      throw error;
-    }
+    if (error) throw error;
     if (!data?.data) {
       res.status(404).json({ error: 'Lien participant invalide ou expiré.' });
       return;

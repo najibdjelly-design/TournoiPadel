@@ -56,7 +56,9 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({
   const pairsMap = new Map<string, Pair>(tournament.pairs.map(p => [p.id, p]));
   const participantShareUrl = tournament.publicShareToken
     ? (() => {
-        const url = new URL(window.location.href);
+        const publicBaseUrl = (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)?.trim();
+        const url = new URL(publicBaseUrl || window.location.href);
+        url.pathname = '/';
         url.search = '';
         url.hash = '';
         url.searchParams.set('participants', tournament.publicShareToken);
