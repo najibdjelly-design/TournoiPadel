@@ -96,36 +96,43 @@ const UpcomingMatchesBanner: React.FC<{
   isTvMode: boolean;
 }> = ({ matches, tournament, pairsMap, isTvMode }) => {
   const [now, setNow] = useState(Date.now());
+  const countdownKey = matches
+    .map(item => `${item.match.id}:${item.timestamp ?? ''}`)
+    .join('|');
 
   useEffect(() => {
     if (!matches.some(item => item.timestamp && item.timestamp > Date.now())) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [matches]);
+  }, [countdownKey]);
 
   if (!matches.length) return null;
   return (
-    <section className={`rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm ${isTvMode ? 'sm:p-6' : ''}`}>
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-amber-950 sm:text-base">
+    <section className={`fixed z-30 rounded-2xl border border-amber-300 bg-amber-50/95 p-2 shadow-xl backdrop-blur-sm sm:p-3 ${
+      isTvMode
+        ? 'bottom-3 left-28 right-28'
+        : 'bottom-[4.5rem] left-2 right-2 md:bottom-3 md:left-3 md:right-3'
+    }`}>
+      <h2 className="mb-1 flex items-center gap-2 text-xs font-extrabold uppercase tracking-wide text-amber-950 sm:text-sm">
         <Clock className="h-5 w-5" />
         Prochains matchs
       </h2>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="flex gap-2 overflow-x-auto">
         {matches.map(({ match, timestamp }) => {
           const pair1 = match.pair1Id ? pairsMap.get(match.pair1Id) : undefined;
           const pair2 = match.pair2Id ? pairsMap.get(match.pair2Id) : undefined;
           return (
-            <div key={match.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5">
+            <div key={match.id} className="min-w-[220px] flex-1 rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 sm:min-w-[280px]">
               <div className="flex items-center justify-between gap-2 text-xs font-bold text-amber-900">
                 <span>{match.roundName}</span>
                 <span className="shrink-0">{timestamp && timestamp > now ? formatCountdown(timestamp, now) : match.scheduledTime || 'Horaire à confirmer'}</span>
               </div>
-              <p className="mt-1 text-sm font-semibold text-slate-800">
+              <p className="mt-0.5 truncate text-xs font-semibold text-slate-800 sm:text-sm">
                 {pair1 ? `${pair1.player1.firstName} ${pair1.player1.lastName} / ${pair1.player2.firstName} ${pair1.player2.lastName}` : match.pair1Placeholder || 'Paire à confirmer'}
                 {' vs '}
                 {pair2 ? `${pair2.player1.firstName} ${pair2.player1.lastName} / ${pair2.player2.firstName} ${pair2.player2.lastName}` : match.pair2Placeholder || 'Paire à confirmer'}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-0.5 truncate text-[10px] text-slate-500 sm:text-xs">
                 {match.courtId ? tournament.courts.find(court => court.id === match.courtId)?.name ?? 'Piste à confirmer' : 'Piste à confirmer'}
                 {match.scheduledTime ? ` · ${match.scheduledTime}` : ''}
               </p>
@@ -333,7 +340,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     : null;
 
   return (
-    <div className={`space-y-4 sm:space-y-6 ${isTvMode ? 'tv-mode pb-32' : ''}`}>
+    <div className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode pb-32' : ''}`}>
       {/* Public Header Banner */}
       <div className="p-4 sm:p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs">
         <div className="min-w-0">
@@ -403,10 +410,10 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
               key={position}
               href={qrUrl}
               className={`fixed ${position} bottom-4 z-40 flex flex-col items-center gap-1 rounded-xl bg-white/95 p-2 shadow-xl ring-1 ring-slate-300`}
-              aria-label="Ouvrir le mode TV sur un autre appareil avec le QR code"
+              aria-label="Ouvrir la vue joueurs sur un autre appareil avec le QR code"
             >
               <QRCodeSVG value={qrUrl} size={88} level="M" />
-              <span className="text-[10px] font-extrabold text-slate-800">Mode TV</span>
+              <span className="text-[10px] font-extrabold text-slate-800">Vue joueurs</span>
             </a>
           ))}
         </>
@@ -485,7 +492,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       )}
 
       {/* Navigation tabs for spectator */}
-      <div className="flex items-center gap-1 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium max-w-full overflow-x-auto whitespace-nowrap">
+      <div className="hidden md:flex items-center gap-1 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium max-w-full overflow-x-auto whitespace-nowrap">
         {participantsPanel && (
           <button
             onClick={() => setActiveTab('participants')}
@@ -562,6 +569,37 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           <span>Tableau Final & Consolante</span>
         </button>
       </div>
+
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-40 flex items-stretch gap-1 overflow-x-auto border-t border-slate-200 bg-white/95 px-1 py-1 shadow-lg backdrop-blur-md md:hidden"
+        aria-label="Navigation de la vue joueurs"
+      >
+        {[
+          ...(participantsPanel ? [{ id: 'participants' as const, label: 'Joueurs', icon: Users }] : []),
+          ...(followedPairIds.length > 0 ? [{ id: 'my-matches' as const, label: 'Mes matchs', icon: Calendar }] : []),
+          { id: 'courts' as const, label: 'Terrains', icon: Flame },
+          { id: 'schedule' as const, label: 'Programme', icon: Calendar },
+          { id: 'pools' as const, label: 'Poules', icon: Grid3X3 },
+          { id: 'bracket' as const, label: 'Tableau', icon: GitBranch },
+        ].map(item => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveTab(item.id)}
+              aria-current={isActive ? 'page' : undefined}
+              className={`flex min-h-12 min-w-[68px] flex-1 flex-col items-center justify-center rounded-lg px-1 py-1 text-[10px] font-semibold ${
+                isActive ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600'
+              }`}
+            >
+              <Icon className={`h-5 w-5 ${isActive ? 'text-emerald-700' : 'text-slate-500'}`} />
+              <span className="mt-0.5 whitespace-nowrap">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
 
       {activeTab === 'my-matches' && (
         <section className="space-y-3">

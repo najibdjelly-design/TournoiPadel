@@ -4,7 +4,7 @@ import type { Match, Pair, Player } from '../../types/tournament';
 import type { ParticipantViewData } from '../../types/participantView';
 import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
 import { PublicLiveModule } from './PublicLiveModule';
-import { buildTvShareUrl } from '../../utils/tvPages';
+import { buildParticipantShareUrl } from '../../utils/tvPages';
 
 
 function getErrorMessage(body: unknown): string | undefined {
@@ -202,7 +202,51 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
                 <span className="text-xs text-slate-500">{rows.length} paire(s)</span>
               </div>
               {rows.length ? (
-                <div className="overflow-x-auto">
+                <>
+                <div className="divide-y divide-slate-100 md:hidden">
+                  {rows.map(({ pair, placement }, index) => (
+                    <article key={pair.id} className="space-y-3 px-4 py-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                            Paire {index + 1}{pair.seedRank ? ` · Tête de série ${pair.seedRank}` : ''}
+                          </p>
+                          {[pair.player1, pair.player2].map(player => (
+                            <button
+                              key={player.id}
+                              type="button"
+                              onClick={() => openPair(pair, player)}
+                              className="block text-left text-sm font-bold text-slate-900 hover:text-emerald-700"
+                            >
+                              {player.firstName} {player.lastName}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleFollowPair(pair.id)}
+                          aria-pressed={followedPairIds.includes(pair.id)}
+                          className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold ${
+                            followedPairIds.includes(pair.id)
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-700 hover:bg-emerald-50'
+                          }`}
+                        >
+                          {followedPairIds.includes(pair.id) ? 'Suivie' : 'Suivre'}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-800">{placement}</span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 font-mono text-slate-600">
+                          {[pair.player1.club, pair.player2.club]
+                            .filter((club, i, list) => club && list.indexOf(club) === i)
+                            .join(' · ') || 'Club non renseigné'}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto md:block">
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
@@ -264,6 +308,7 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
                     </tbody>
                   </table>
                 </div>
+                </>
               ) : (
                 <p className="px-5 py-8 text-center text-sm text-slate-500">Aucune paire confirmée ne correspond à la recherche.</p>
               )}
@@ -289,7 +334,7 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
           tournament={tournament}
           participantsPanel={participantsPanel}
           followedPairIds={followedPairIds}
-          qrUrl={buildTvShareUrl(token)}
+          qrUrl={buildParticipantShareUrl(token)}
           initialTvMode={new URLSearchParams(window.location.search).get('tv') === '1'}
         />
 

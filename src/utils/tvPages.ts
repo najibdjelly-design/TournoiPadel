@@ -20,9 +20,3 @@ export function buildParticipantShareUrl(token: string): string {
   url.searchParams.set('participants', token);
   return url.toString();
 }
-
-export function buildTvShareUrl(token: string): string {
-  const url = new URL(buildParticipantShareUrl(token));
-  url.searchParams.set('tv', '1');
-  return url.toString();
-}
