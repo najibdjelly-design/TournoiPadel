@@ -35,11 +35,23 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
         const response = await fetch(`/api/participant-view?${query.toString()}`, {
           cache: 'no-store',
         });
-        const body: unknown = await response.json();
+        const responseText = await response.text();
+        let body: unknown;
+        try {
+          body = responseText ? JSON.parse(responseText) : null;
+        } catch {
+          throw new Error(
+            `L’API participants a renvoyé une réponse non JSON (HTTP ${response.status}). Consultez les journaux de la fonction Vercel.`
+          );
+        }
         if (!response.ok) {
           throw new Error(
-            getErrorMessage(body) ?? 'Impossible de charger les informations du tournoi.'
+            getErrorMessage(body) ??
+              `Impossible de charger les informations du tournoi (HTTP ${response.status}).`
           );
+        }
+        if (typeof body !== 'object' || body === null || !('participants' in body)) {
+          throw new Error('La réponse de l’API participants ne contient pas les données attendues.');
         }
         if (isMounted) {
           setData(body as ParticipantViewData);

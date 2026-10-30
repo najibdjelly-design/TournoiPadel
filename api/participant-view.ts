@@ -18,6 +18,7 @@ interface ApiResponse {
   setHeader(name: string, value: string): void;
   status(code: number): ApiResponse;
   json(body: unknown): void;
+  headersSent?: boolean;
 }
 
 function getPairName(
@@ -109,29 +110,37 @@ function createParticipantView(tournament: Tournament): ParticipantViewData {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET');
-    res.status(405).json({ error: 'Méthode non autorisée.' });
-    return;
-  }
-
-  const token = new URL(req.url ?? '/', 'https://participant-view.invalid').searchParams.get('token');
-  if (!token || !/^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(token)) {
-    res.status(404).json({ error: 'Lien participant invalide ou expiré.' });
-    return;
-  }
-
-  const supabaseUrl = env.SUPABASE_URL ?? env.VITE_SUPABASE_URL;
-  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    console.error('Configuration du partage participant manquante côté serveur.');
-    res.status(500).json({ error: 'La vue participants est temporairement indisponible.' });
-    return;
-  }
-
   try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (req.method !== 'GET') {
+      res.setHeader('Allow', 'GET');
+      res.status(405).json({ error: 'Méthode non autorisée.' });
+      return;
+    }
+
+    const token = new URL(req.url ?? '/', 'https://participant-view.invalid')
+      .searchParams.get('token');
+    if (
+      !token ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(token)
+    ) {
+      res.status(404).json({ error: 'Lien participant invalide ou expiré.' });
+      return;
+    }
+
+    const supabaseUrl = env.SUPABASE_URL ?? env.VITE_SUPABASE_URL;
+    const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error('Configuration du partage participant manquante côté serveur.', {
+        hasSupabaseUrl: Boolean(supabaseUrl),
+        hasServiceRoleKey: Boolean(serviceRoleKey),
+      });
+      res.status(500).json({ error: 'La vue participants est temporairement indisponible.' });
+      return;
+    }
+
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
@@ -149,6 +158,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     res.status(200).json(createParticipantView(data.data as Tournament));
   } catch (error) {
     console.error('Erreur lors du chargement de la vue participants :', error);
-    res.status(500).json({ error: 'Impossible de charger les informations du tournoi.' });
+    if (!res.headersSent) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.status(500).json({ error: 'Impossible de charger les informations du tournoi.' });
+    }
   }
 }
