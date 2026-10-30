@@ -139,6 +139,29 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
     ];
   }, [tournament.pools, visibleBracketMatches, visibleConsolanteMatches]);
 
+  const matchStageLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    const stages = getBracketScheduleStages(visibleBracketMatches, visibleConsolanteMatches);
+    const placesOf = (match: Match) => {
+      const range = match.roundName.match(/(\d+)\s*e?\s*-\s*(\d+)\s*e/i);
+      if (range) return `${range[1]}-${range[2]}`;
+      const place = match.roundName.match(/(\d+)\s*e\s+place/i);
+      if (place) return `${place[1]}-${Number(place[1]) + 1}`;
+      return null;
+    };
+    for (const stage of stages) {
+      for (const match of stage.bracketMatches) {
+        const places = placesOf(match);
+        labels.set(match.id, places ? `Tour ${stage.round} · Classement ${places}` : `Tour ${stage.round}`);
+      }
+      for (const match of stage.classificationMatches) {
+        const places = placesOf(match);
+        labels.set(match.id, `Tour ${stage.round}${places ? ` · Classement ${places}` : ''}`);
+      }
+    }
+    return labels;
+  }, [visibleBracketMatches, visibleConsolanteMatches]);
+
   // Compute time slots based on slot duration in minutes
   const timeSlots = useMemo(() => {
     const scheduledMatches = allMatches.filter(match => match.scheduledTime);
@@ -1007,6 +1030,11 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                           <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
                             {!isLive && !isFinished && <GripVertical className="w-3 h-3 shrink-0" />}
                             {match.roundName}
+                            {matchStageLabels.get(match.id) && (
+                              <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">
+                                {matchStageLabels.get(match.id)}
+                              </span>
+                            )}
                             {match.matchFormat && (
                               <span
                                 className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
