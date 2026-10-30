@@ -482,18 +482,38 @@ export function createConflictFreeSchedule(
   ];
   const mutableMatches = new Map(allMatches.map(match => [match.id, { ...match }]));
   const incoming = new Map<string, { sourceId: string; outcome: 'winner' | 'loser' }>();
+  const outgoing = new Map<
+    string,
+    { targetId: string; targetSlot: 'pair1' | 'pair2'; outcome: 'winner' | 'loser' }[]
+  >();
+  const registerRoute = (
+    sourceId: string,
+    targetId: string,
+    targetSlot: 'pair1' | 'pair2',
+    outcome: 'winner' | 'loser'
+  ) => {
+    const targetKey = `${targetId}:${targetSlot}`;
+    const existing = incoming.get(targetKey);
+    if (existing && (existing.sourceId !== sourceId || existing.outcome !== outcome)) return;
+    incoming.set(targetKey, { sourceId, outcome });
+    const targets = outgoing.get(sourceId) ?? [];
+    if (!targets.some(target => target.targetId === targetId && target.targetSlot === targetSlot)) {
+      targets.push({ targetId, targetSlot, outcome });
+      outgoing.set(sourceId, targets);
+    }
+  };
+
   for (const match of allMatches) {
     if (match.nextMatchId && match.nextMatchSlot) {
-      incoming.set(`${match.nextMatchId}:${match.nextMatchSlot}`, {
-        sourceId: match.id,
-        outcome: 'winner',
-      });
+      registerRoute(match.id, match.nextMatchId, match.nextMatchSlot, 'winner');
     }
     if (match.loserNextMatchId && match.loserNextMatchSlot) {
-      incoming.set(`${match.loserNextMatchId}:${match.loserNextMatchSlot}`, {
-        sourceId: match.id,
-        outcome: 'loser',
-      });
+      registerRoute(match.id, match.loserNextMatchId, match.loserNextMatchSlot, 'loser');
+    }
+    for (const slot of ['pair1', 'pair2'] as const) {
+      const sourceId = match[`${slot}SourceMatchId`];
+      const outcome = match[`${slot}SourceOutcome`];
+      if (sourceId && outcome) registerRoute(sourceId, match.id, slot, outcome);
     }
   }
 
@@ -625,14 +645,9 @@ export function createConflictFreeSchedule(
   const propagateOutcome = (
     source: Match,
     outcome: 'winner' | 'loser',
-    targetId: string | undefined,
-    targetSlot: 'pair1' | 'pair2' | undefined,
     availableAt: number,
     simulated: boolean
   ) => {
-    if (!targetId || !targetSlot) return;
-    const target = mutableMatches.get(targetId);
-    if (!target) return;
     const pairId = outcome === 'winner'
       ? source.winnerPairId
       : source.winnerPairId
@@ -644,8 +659,13 @@ export function createConflictFreeSchedule(
         ? `${outcome}:${source.id}`
         : undefined;
     if (!participant) return;
-    setParticipant(target.id, targetSlot, participant, availableAt);
-    if (pairId) target[`${targetSlot}Id`] = pairId;
+    for (const route of outgoing.get(source.id) ?? []) {
+      if (route.outcome !== outcome) continue;
+      const target = mutableMatches.get(route.targetId);
+      if (!target) continue;
+      setParticipant(target.id, route.targetSlot, participant, availableAt);
+      if (pairId) target[`${route.targetSlot}Id`] = pairId;
+    }
   };
 
   for (const match of allMatches) {
@@ -653,8 +673,8 @@ export function createConflictFreeSchedule(
     const completedAt = match.completedAt ? Date.parse(match.completedAt) : startMs;
     const availableAt = Number.isFinite(completedAt) ? completedAt : startMs;
     if (match.winnerPairId) {
-      propagateOutcome(match, 'winner', match.nextMatchId, match.nextMatchSlot, availableAt, false);
-      propagateOutcome(match, 'loser', match.loserNextMatchId, match.loserNextMatchSlot, availableAt, false);
+      propagateOutcome(match, 'winner', availableAt, false);
+      propagateOutcome(match, 'loser', availableAt, false);
     }
   }
 
@@ -664,8 +684,6 @@ export function createConflictFreeSchedule(
     match.status !== 'in_progress' &&
     match.status !== 'warmup'
   );
-  const getMatchSchedulingPriority = (match: Match): number =>
-    match.type === 'bracket' ? 1 : 0;
   const scheduleReadyMatches = (pending: Match[], startBarrier: number): boolean => {
     while (pending.length > 0) {
       let best: {
@@ -696,11 +714,7 @@ export function createConflictFreeSchedule(
           if (
             !best ||
             startAt < best.startAt ||
-            (startAt === best.startAt && (
-              getMatchSchedulingPriority(match) > getMatchSchedulingPriority(best.match) ||
-              (getMatchSchedulingPriority(match) === getMatchSchedulingPriority(best.match) &&
-                match.matchNumber < best.match.matchNumber)
-            ))
+            (startAt === best.startAt && match.matchNumber < best.match.matchNumber)
           ) {
             best = { match, court, startAt };
           }
@@ -723,16 +737,12 @@ export function createConflictFreeSchedule(
       propagateOutcome(
         best.match,
         'winner',
-        best.match.nextMatchId,
-        best.match.nextMatchSlot,
         availableAt,
         true
       );
       propagateOutcome(
         best.match,
         'loser',
-        best.match.loserNextMatchId,
-        best.match.loserNextMatchSlot,
         availableAt,
         true
       );
@@ -742,19 +752,119 @@ export function createConflictFreeSchedule(
     return true;
   };
 
-  let previousPoolPhaseEnd = startMs;
+  let stageBarrier = startMs;
   for (const phase of poolStages) {
     const phasePending = scheduledPending.filter(match => phase.includes(match));
-    if (!scheduleReadyMatches(phasePending, previousPoolPhaseEnd)) return assignments;
+    if (!scheduleReadyMatches(phasePending, stageBarrier)) return assignments;
     const phaseEnds = phase.map(getMatchEndAt);
     if (phaseEnds.some(endAt => endAt === undefined)) return assignments;
-    previousPoolPhaseEnd = Math.max(previousPoolPhaseEnd, ...phaseEnds as number[]);
+    stageBarrier = Math.max(stageBarrier, ...phaseEnds as number[]);
   }
 
-  const bracketAndConsolanteMatches = scheduledPending.filter(match => match.type !== 'pool');
-  scheduleReadyMatches(bracketAndConsolanteMatches, previousPoolPhaseEnd);
+  const knockoutStages = getBracketScheduleStages(bracketMatches, consolanteMatches);
+  const scheduledClassificationIds = new Set<string>();
+  for (const stage of knockoutStages) {
+    const mainRoundPending = scheduledPending.filter(match =>
+      stage.bracketMatches.some(roundMatch => roundMatch.id === match.id)
+    );
+    if (!scheduleReadyMatches(mainRoundPending, stageBarrier)) return assignments;
+
+    const mainRoundEnds = stage.bracketMatches.map(getMatchEndAt);
+    if (mainRoundEnds.some(endAt => endAt === undefined)) return assignments;
+    stageBarrier = Math.max(stageBarrier, ...mainRoundEnds as number[]);
+
+    const classificationMatches = stage.classificationMatches.filter(
+      match => !scheduledClassificationIds.has(match.id)
+    );
+    const classificationPending = scheduledPending.filter(match =>
+      classificationMatches.some(classificationMatch => classificationMatch.id === match.id)
+    );
+    if (!scheduleReadyMatches(classificationPending, stageBarrier)) return assignments;
+
+    for (const match of classificationMatches) scheduledClassificationIds.add(match.id);
+    const classificationEnds = classificationMatches.map(getMatchEndAt);
+    if (classificationEnds.some(endAt => endAt === undefined)) return assignments;
+    if (classificationEnds.length) {
+      stageBarrier = Math.max(stageBarrier, ...classificationEnds as number[]);
+    }
+  }
+
+  const remainingConsolanteMatches = scheduledPending.filter(
+    match => match.type === 'consolante' && !scheduledClassificationIds.has(match.id)
+  );
+  scheduleReadyMatches(remainingConsolanteMatches, stageBarrier);
 
   return assignments;
+}
+
+export interface BracketScheduleStage {
+  round: number;
+  bracketMatches: Match[];
+  classificationMatches: Match[];
+}
+
+export function getBracketScheduleStages(
+  bracketMatches: Match[],
+  consolanteMatches: Match[]
+): BracketScheduleStage[] {
+  const classificationById = new Map(consolanteMatches.map(match => [match.id, match]));
+  const targetsBySourceId = new Map<string, { targetId: string; outcome?: 'winner' | 'loser' }[]>();
+
+  for (const match of consolanteMatches) {
+    for (const slot of ['pair1', 'pair2'] as const) {
+      const sourceId = match[`${slot}SourceMatchId`];
+      if (!sourceId) continue;
+      const targets = targetsBySourceId.get(sourceId) ?? [];
+      targets.push({
+        targetId: match.id,
+        outcome: match[`${slot}SourceOutcome`],
+      });
+      targetsBySourceId.set(sourceId, targets);
+    }
+  }
+
+  const rounds = new Map<number, Match[]>();
+  for (const match of bracketMatches) {
+    const round = match.bracketRound ?? 1;
+    const matches = rounds.get(round) ?? [];
+    matches.push(match);
+    rounds.set(round, matches);
+  }
+
+  const scheduledClassificationIds = new Set<string>();
+  return [...rounds.entries()]
+    .sort(([roundA], [roundB]) => roundA - roundB)
+    .map(([round, matches]) => {
+      const pendingIds = matches.flatMap(match => [
+        ...(match.loserNextMatchId ? [match.loserNextMatchId] : []),
+        ...(targetsBySourceId.get(match.id) ?? [])
+          .filter(target => target.outcome === 'loser')
+          .map(target => target.targetId),
+      ]);
+      const classificationMatches: Match[] = [];
+
+      while (pendingIds.length) {
+        const matchId = pendingIds.pop()!;
+        const match = classificationById.get(matchId);
+        if (!match || scheduledClassificationIds.has(match.id)) continue;
+        scheduledClassificationIds.add(match.id);
+        classificationMatches.push(match);
+        pendingIds.push(
+          ...[match.nextMatchId, match.loserNextMatchId].filter(
+            (targetId): targetId is string => Boolean(targetId)
+          ),
+          ...(targetsBySourceId.get(match.id) ?? []).map(target => target.targetId)
+        );
+      }
+
+      return {
+        round,
+        bracketMatches: matches.sort((a, b) => a.matchNumber - b.matchNumber),
+        classificationMatches: classificationMatches.sort(
+          (a, b) => a.matchNumber - b.matchNumber
+        ),
+      };
+    });
 }
 
 export function applyScheduleAssignments(

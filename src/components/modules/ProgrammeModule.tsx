@@ -6,6 +6,7 @@ import {
   compactConsolanteLoserSlots,
   applyScheduleAssignments,
   createConflictFreeSchedule,
+  getBracketScheduleStages,
   isMatchPlayable,
   isMatchSchedulable,
   normalizeSixteenTeam24Draw,
@@ -68,25 +69,6 @@ function timeToMinutes(time: string): number | null {
   return hours * 60 + minutes;
 }
 
-function getScheduledStartMinutes(match: Match): number | null {
-  const timestamp = match.scheduledAt ? Date.parse(match.scheduledAt) : NaN;
-  if (Number.isFinite(timestamp)) {
-    const storedDate = new Date(timestamp);
-    const storedTime = `${storedDate.getHours().toString().padStart(2, '0')}:${storedDate.getMinutes().toString().padStart(2, '0')}`;
-    if (storedTime === match.scheduledTime) return timestamp / 60_000;
-  }
-  const minutes = match.scheduledTime ? timeToMinutes(match.scheduledTime) : null;
-  return minutes;
-}
-
-function formatWaitTime(minutes: number): string {
-  if (minutes <= 0) return minutes === 0 ? 'enchaînement direct' : `conflit (${Math.abs(minutes)} min trop tôt)`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  if (hours === 0) return `${remainingMinutes} min`;
-  return remainingMinutes === 0 ? `${hours} h` : `${hours} h ${remainingMinutes} min`;
-}
-
 export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   tournament,
   onUpdateTournament,
@@ -144,50 +126,6 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       ...visibleConsolanteMatches,
     ];
   }, [tournament.pools, visibleBracketMatches, visibleConsolanteMatches]);
-
-  const progressionWaitsByMatch = useMemo(() => {
-    const matchesById = new Map(allMatches.map(match => [match.id, match]));
-    const waits = new Map<string, { label: string; roundName: string; minutes: number }[]>();
-
-    for (const match of allMatches) {
-      if (!match.scheduledTime) continue;
-      const start = getScheduledStartMinutes(match);
-      if (start === null) continue;
-
-      const edges = [
-        { targetId: match.nextMatchId, label: 'Vainqueur' },
-        { targetId: match.loserNextMatchId, label: 'Perdant' },
-      ];
-      const matchWaits = edges.flatMap(({ targetId, label }) => {
-        const nextMatch = targetId ? matchesById.get(targetId) : undefined;
-        if (!nextMatch?.scheduledTime) return [];
-        const nextStart = getScheduledStartMinutes(nextMatch);
-        if (nextStart === null) return [];
-        const playedDuration = match.durationMinutes ?? slotDuration;
-        return [{
-          label,
-          roundName: nextMatch.roundName,
-          minutes: Math.round(nextStart - (start + playedDuration)),
-        }];
-      });
-
-      if (matchWaits.length) waits.set(match.id, matchWaits);
-    }
-
-    return waits;
-  }, [allMatches, slotDuration]);
-
-  const progressionWaitSummary = useMemo(() => {
-    const waits = [...progressionWaitsByMatch.values()].flat().map(wait => wait.minutes);
-    if (!waits.length) return null;
-    const sortedWaits = [...waits].sort((a, b) => a - b);
-    return {
-      count: waits.length,
-      minimum: sortedWaits[0],
-      average: Math.round(waits.reduce((sum, wait) => sum + wait, 0) / waits.length),
-      maximum: sortedWaits[sortedWaits.length - 1],
-    };
-  }, [progressionWaitsByMatch]);
 
   // Compute time slots based on slot duration in minutes
   const timeSlots = useMemo(() => {
@@ -468,39 +406,60 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
   // -------------------------------------------------------------
   const scheduleDiagnostics = useMemo(() => {
     const warnings: string[] = [];
-    const getPhase = (phase: number | undefined) => phase ?? 1;
-    const scheduledPools = tournament.pools
-      .map(pool => ({
-        pool,
-        times: pool.matches
-          .filter(match => match.scheduledTime)
-          .map(match => timeToMinutes(match.scheduledTime!))
-          .filter((time): time is number => time !== null),
-      }))
-      .filter(item => item.times.length > 0);
+    const getScheduledBounds = (matches: Match[]) => {
+      const intervals = matches.flatMap(match => {
+        const start = match.scheduledTime ? timeToMinutes(match.scheduledTime) : null;
+        return start === null
+          ? []
+          : [{ start, end: start + (match.durationMinutes ?? slotDuration) }];
+      });
+      return intervals.length
+        ? {
+            start: Math.min(...intervals.map(interval => interval.start)),
+            end: Math.max(...intervals.map(interval => interval.end)),
+          }
+        : undefined;
+    };
 
-    const phaseFinishes = new Map<number, number>();
-    for (const { pool, times } of scheduledPools) {
-      const phase = getPhase(pool.phase);
-      phaseFinishes.set(phase, Math.max(phaseFinishes.get(phase) ?? -1, ...times));
+    const poolsByPhase = new Map<number, Match[]>();
+    for (const pool of tournament.pools) {
+      const phase = pool.phase ?? 1;
+      poolsByPhase.set(phase, [
+        ...(poolsByPhase.get(phase) ?? []),
+        ...pool.matches,
+      ]);
     }
-    for (let phase = 1; phase < Math.max(0, ...phaseFinishes.keys()); phase++) {
-      const previousFinish = phaseFinishes.get(phase);
-      const nextStarts = scheduledPools
-        .filter(item => getPhase(item.pool.phase) === phase + 1)
-        .flatMap(item => item.times);
-      if (previousFinish !== undefined && nextStarts.length && Math.min(...nextStarts) <= previousFinish) {
-        warnings.push(`Conflit de phase : les matches de la phase ${phase + 1} commencent avant la fin de la phase ${phase}.`);
+
+    let stageEnd = -1;
+    for (const phase of [...poolsByPhase.keys()].sort((a, b) => a - b)) {
+      const bounds = getScheduledBounds(poolsByPhase.get(phase) ?? []);
+      if (!bounds) continue;
+      if (stageEnd >= 0 && bounds.start < stageEnd) {
+        warnings.push(`La phase ${phase} commence avant la fin de la phase précédente.`);
       }
+      stageEnd = Math.max(stageEnd, bounds.end);
     }
 
-    const latestPoolFinish = Math.max(-1, ...phaseFinishes.values());
-    const scheduledBracketTimes = tournament.bracketMatches
-      .filter(match => match.scheduledTime)
-      .map(match => timeToMinutes(match.scheduledTime!))
-      .filter((time): time is number => time !== null);
-    if (latestPoolFinish >= 0 && scheduledBracketTimes.some(time => time <= latestPoolFinish)) {
-      warnings.push('Conflit de dépendance : un match du tableau commence avant la fin des poules.');
+    const bracketStages = getBracketScheduleStages(
+      visibleBracketMatches,
+      visibleConsolanteMatches
+    );
+    for (const stage of bracketStages) {
+      const mainRoundBounds = getScheduledBounds(stage.bracketMatches);
+      if (mainRoundBounds) {
+        if (stageEnd >= 0 && mainRoundBounds.start < stageEnd) {
+          warnings.push(`Le tour ${stage.round} commence avant la fin du tour ou des matchs de classement précédents.`);
+        }
+        stageEnd = Math.max(stageEnd, mainRoundBounds.end);
+      }
+
+      const classificationBounds = getScheduledBounds(stage.classificationMatches);
+      if (classificationBounds) {
+        if (mainRoundBounds && classificationBounds.start < mainRoundBounds.end) {
+          warnings.push(`Les matchs de classement du tour ${stage.round} commencent avant la fin du tour.`);
+        }
+        stageEnd = Math.max(stageEnd, classificationBounds.end);
+      }
     }
 
     const allScheduled = allMatches
@@ -560,7 +519,15 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
       isValid: warnings.length === 0,
       warnings,
     };
-  }, [allMatches, tournament.pools, tournament.bracketMatches, pairsMap, tournament.courts, slotDuration]);
+  }, [
+    allMatches,
+    tournament.pools,
+    visibleBracketMatches,
+    visibleConsolanteMatches,
+    pairsMap,
+    tournament.courts,
+    slotDuration,
+  ]);
 
   // Automated Optimal Schedule Generator
   const handleGenerateOptimalSchedule = () => {
@@ -633,7 +600,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
         : latest;
     }, { time: startTime, minutes: timeToMinutes(startTime) ?? 0 }).time;
     setOptimizationReport(totalScheduled > 0
-      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Le tableau principal est priorisé pour réduire l'attente entre les tours ; les matches de classement utilisent les créneaux libres.`
+      ? `Succès : ${totalScheduled} matches répartis sur ${tournament.courts.length} terrain(s), de ${startTime} à ${endTime}. Chaque tour s’enchaîne après les matchs de classement concernés, en utilisant les terrains disponibles dès que possible.`
       : 'Aucun match ne peut encore être programmé : il faut que les deux paires soient connues pour chaque rencontre.'
     );
     setShowOptimizerPanel(true);
@@ -667,7 +634,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
             Programme des Matchs & Affectation des Pistes
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Créneaux personnalisables en minutes, vérification des dépendances Poules &rarr; Tableau et optimisation anti-attente
+            Début et durée personnalisables · progression par tours · matchs de classement avant le tour suivant · terrains utilisés dès qu’ils sont libres
           </p>
         </div>
 
@@ -708,7 +675,7 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
           <button
             onClick={handleGenerateOptimalSchedule}
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs"
-            title="Génère une proposition optimale respectant l'ordre des poules et minimisant l'attente"
+            title="Planifie les tours dans l’ordre et enchaîne les matchs de classement avant le tour suivant"
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>Proposition Optimale</span>
@@ -780,32 +747,12 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
           <div className="flex items-center gap-2">
             <CheckCheck className="w-4 h-4 text-emerald-600" />
             <span>
-              <strong>Dépendances vérifiées :</strong> L'ordre chronologique des poules et du tableau final est optimal. Zéro conflit détecté.
+              <strong>Progression vérifiée :</strong> les tours et matchs de classement s’enchaînent dans l’ordre prévu. Aucun conflit détecté.
             </span>
           </div>
           <span className="font-mono text-[11px] text-emerald-800 font-semibold">
             Créneaux : {slotDuration} min · {timeSlots[0]} à {timeSlots[timeSlots.length - 1]}
           </span>
-        </div>
-      )}
-
-      {progressionWaitSummary && (
-        <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-950 shadow-xs">
-          <div className="flex items-start gap-2">
-            <Clock className="w-4 h-4 mt-0.5 text-sky-700 shrink-0" />
-            <div>
-              <p className="font-bold">Repos prévu entre les matchs à élimination</p>
-              <p className="mt-1">
-                Sur {progressionWaitSummary.count} enchaînement(s) programmé(s) : minimum{' '}
-                <strong>{formatWaitTime(progressionWaitSummary.minimum)}</strong>, moyenne{' '}
-                <strong>{formatWaitTime(progressionWaitSummary.average)}</strong>, maximum{' '}
-                <strong>{formatWaitTime(progressionWaitSummary.maximum)}</strong>.
-              </p>
-              <p className="mt-1 text-sky-800">
-                Chaque tour commence uniquement après la fin planifiée de tous les matchs du tour précédent. Le repos indiqué correspond au temps entre la fin du match et le début du suivant.
-              </p>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1068,18 +1015,6 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                                 : match.pair2Placeholder}
                             </p>
                           </div>
-
-                          {progressionWaitsByMatch.get(match.id)?.map(wait => (
-                            <p
-                              key={`${match.id}-${wait.label}`}
-                              className={`flex items-center gap-1 text-[10px] font-medium ${
-                                wait.minutes < 0 ? 'text-rose-700' : 'text-sky-800'
-                              }`}
-                            >
-                              <Clock className="w-3 h-3 shrink-0" />
-                              {wait.label} → {wait.roundName} : {formatWaitTime(wait.minutes)}
-                            </p>
-                          ))}
 
                           {match.score && (
                             <p className="font-mono text-emerald-700 font-bold text-xs pt-1">
