@@ -24,6 +24,7 @@ import {
   Users,
   X,
   Timer,
+  ChevronRight,
 } from 'lucide-react';
 
 interface PublicLiveModuleProps {
@@ -93,8 +94,7 @@ const UpcomingMatchesBanner: React.FC<{
   matches: Array<{ match: Match; timestamp?: number }>;
   tournament: Tournament;
   pairsMap: Map<string, Pair>;
-  isTvMode: boolean;
-}> = ({ matches, tournament, pairsMap, isTvMode }) => {
+}> = ({ matches, tournament, pairsMap }) => {
   const [now, setNow] = useState(Date.now());
   const countdownKey = matches
     .map(item => `${item.match.id}:${item.timestamp ?? ''}`)
@@ -108,11 +108,7 @@ const UpcomingMatchesBanner: React.FC<{
 
   if (!matches.length) return null;
   return (
-    <section className={`fixed z-30 rounded-2xl border border-amber-300 bg-amber-50/95 p-2 shadow-xl backdrop-blur-sm sm:p-3 ${
-      isTvMode
-        ? 'bottom-3 left-28 right-28'
-        : 'bottom-[4.5rem] left-2 right-2 md:bottom-3 md:left-3 md:right-3'
-    }`}>
+    <section className="fixed bottom-3 left-[124px] right-[124px] z-30 rounded-2xl border border-amber-300 bg-amber-50/95 p-2 shadow-xl backdrop-blur-sm sm:p-3">
       <h2 className="mb-1 flex items-center gap-2 text-xs font-extrabold uppercase tracking-wide text-amber-950 sm:text-sm">
         <Clock className="h-5 w-5" />
         Prochains matchs
@@ -160,6 +156,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'list' : 'grid'
   );
   const [bracketSubTab, setBracketSubTab] = useState<BracketSubTab>('main');
+  const [classificationFocusMatchIds, setClassificationFocusMatchIds] = useState<string[] | null>(null);
   const [isTvMode, setIsTvMode] = useState(initialTvMode);
   const [tvIndex, setTvIndex] = useState(0);
   const tvScrollRef = React.useRef(0);
@@ -223,7 +220,11 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   }, [initialTvMode]);
 
   // Group bracket matches by round
-  const activeBracketMatches = bracketSubTab === 'main' ? mainBracketMatches : consolanteMatches;
+  const activeBracketMatches = bracketSubTab === 'main'
+    ? mainBracketMatches
+    : classificationFocusMatchIds
+      ? consolanteMatches.filter(match => classificationFocusMatchIds.includes(match.id))
+      : consolanteMatches;
   const bracketRoundsMap = useMemo(() => {
     const map = new Map<number, Match[]>();
     activeBracketMatches.forEach(m => {
@@ -235,6 +236,39 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   }, [activeBracketMatches]);
 
   const sortedRoundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
+
+  const openRoundClassification = (round: number) => {
+    const sourceMatches = mainBracketMatches.filter(match => (match.bracketRound ?? 1) === round);
+    const sourceIds = new Set(sourceMatches.map(match => match.id));
+    const relatedIds = new Set<string>();
+    const pendingIds = sourceMatches
+      .map(match => match.loserNextMatchId)
+      .filter((id): id is string => Boolean(id));
+    consolanteMatches.forEach(match => {
+      if (
+        (match.pair1SourceMatchId && sourceIds.has(match.pair1SourceMatchId) && match.pair1SourceOutcome === 'loser') ||
+        (match.pair2SourceMatchId && sourceIds.has(match.pair2SourceMatchId) && match.pair2SourceOutcome === 'loser')
+      ) {
+        pendingIds.push(match.id);
+      }
+    });
+
+    while (pendingIds.length) {
+      const matchId = pendingIds.pop();
+      if (!matchId || relatedIds.has(matchId)) continue;
+      const match = consolanteMatches.find(item => item.id === matchId);
+      if (!match) continue;
+      relatedIds.add(matchId);
+      if (match.nextMatchId) pendingIds.push(match.nextMatchId);
+      if (match.loserNextMatchId) pendingIds.push(match.loserNextMatchId);
+    }
+
+    if (relatedIds.size === 0) return;
+    setClassificationFocusMatchIds([...relatedIds]);
+    setBracketSubTab('consolante');
+    setActiveTab('bracket');
+    window.scrollTo(0, 0);
+  };
 
   // Sequence of screens cycled in TV mode: only the pages chosen by the referee that have content
   const tvViews = useMemo<Array<{ tab: LiveTab; sub?: BracketSubTab }>>(() => {
@@ -307,6 +341,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       return;
     }
     setTvIndex(0);
+    setClassificationFocusMatchIds(null);
     setIsTvMode(true);
     document.documentElement.requestFullscreen?.().catch(() => {});
   };
@@ -396,16 +431,14 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
         </button>
       )}
 
-      <UpcomingMatchesBanner
-        matches={tvUpcomingMatches}
-        tournament={tournament}
-        pairsMap={pairsMap}
-        isTvMode={isTvMode}
-      />
-
-      {isTvMode && qrUrl && (
+      {isTvMode && (
         <>
-          {(['left-4', 'right-4'] as const).map(position => (
+          <UpcomingMatchesBanner
+            matches={tvUpcomingMatches}
+            tournament={tournament}
+            pairsMap={pairsMap}
+          />
+          {qrUrl && (['left-4', 'right-4'] as const).map(position => (
             <a
               key={position}
               href={qrUrl}
@@ -1040,7 +1073,10 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           <div className="flex items-center gap-2 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs max-w-full overflow-x-auto whitespace-nowrap">
             <button
               type="button"
-              onClick={() => setBracketSubTab('main')}
+              onClick={() => {
+                setBracketSubTab('main');
+                setClassificationFocusMatchIds(null);
+              }}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md font-semibold transition-colors min-h-[38px] ${
                 bracketSubTab === 'main'
                   ? 'bg-white text-emerald-800 border border-slate-200 shadow-xs font-bold'
@@ -1054,7 +1090,10 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
             {consolanteMatches.length > 0 && (
               <button
                 type="button"
-                onClick={() => setBracketSubTab('consolante')}
+                onClick={() => {
+                  setBracketSubTab('consolante');
+                  setClassificationFocusMatchIds(null);
+                }}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md font-semibold transition-colors min-h-[38px] ${
                   bracketSubTab === 'consolante'
                     ? 'bg-white text-amber-800 border border-slate-200 shadow-xs font-bold'
@@ -1068,7 +1107,10 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
             <button
               type="button"
-              onClick={() => setBracketSubTab('standings')}
+              onClick={() => {
+                setBracketSubTab('standings');
+                setClassificationFocusMatchIds(null);
+              }}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md font-semibold transition-colors min-h-[38px] ${
                 bracketSubTab === 'standings'
                   ? 'bg-white text-indigo-800 border border-slate-200 shadow-xs font-bold'
@@ -1178,9 +1220,21 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                   return (
                     <div key={roundNum} className="flex-1 min-w-[220px] flex flex-col space-y-3">
                       <div className="text-center pb-2 border-b border-slate-100">
-                        <span className="text-xs font-bold text-slate-800">
-                          {sampleMatch?.roundName.split(' #')[0] || `Tour ${roundNum}`}
-                        </span>
+                        {bracketSubTab === 'main' && consolanteMatches.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => openRoundClassification(roundNum)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-800 hover:text-indigo-950 hover:underline"
+                            title={`Voir les matchs de classement liés à ${sampleMatch?.roundName.split(' #')[0] || `Tour ${roundNum}`}`}
+                          >
+                            {sampleMatch?.roundName.split(' #')[0] || `Tour ${roundNum}`}
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-800">
+                            {sampleMatch?.roundName.split(' #')[0] || `Tour ${roundNum}`}
+                          </span>
+                        )}
                         <span className="block text-[10px] text-slate-400 font-mono">
                           {roundMatches.length} rencontre(s)
                         </span>
