@@ -20,6 +20,7 @@ import { ProgrammeModule } from './components/modules/ProgrammeModule';
 import { ConvocationsModule } from './components/modules/ConvocationsModule';
 import { CaisseModule } from './components/modules/CaisseModule';
 import { PublicLiveModule } from './components/modules/PublicLiveModule';
+import { ParticipantPortal } from './components/modules/ParticipantPortal';
 import { ScoreModal } from './components/modals/ScoreModal';
 import { NewTournamentModal } from './components/modals/NewTournamentModal';
 import { TournamentsManagerModal } from './components/modals/TournamentsManagerModal';
@@ -31,6 +32,7 @@ import {
 } from './utils/padelSchedule';
 
 export default function App() {
+  const participantShareToken = new URLSearchParams(window.location.search).get('participants');
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export default function App() {
   const [isTournamentsManagerOpen, setIsTournamentsManagerOpen] = useState<boolean>(false);
 
   useEffect(() => {
+    if (participantShareToken) return;
     if (!supabase) {
       setAuthLoading(false);
       return;
@@ -79,9 +82,10 @@ export default function App() {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [participantShareToken]);
 
   useEffect(() => {
+    if (participantShareToken) return;
     if (!session) {
       boltClient.stop();
       setDatabaseLoading(false);
@@ -109,10 +113,11 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [session?.user.id, retryCount]);
+  }, [participantShareToken, session?.user.id, retryCount]);
 
   // Subscribe to reactive database changes and surface write/realtime errors.
   useEffect(() => {
+    if (participantShareToken) return;
     const unsubscribe = boltClient.subscribe(() => {
       setTournaments([...boltClient.getTournaments()]);
       setActiveTournament(boltClient.getActiveTournament());
@@ -121,7 +126,7 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [participantShareToken]);
 
   const handleSignOut = async () => {
     if (!supabase) return;
@@ -141,6 +146,10 @@ export default function App() {
 
     setIsPublicMode(true);
   };
+
+  if (participantShareToken) {
+    return <ParticipantPortal token={participantShareToken} />;
+  }
 
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center text-sm font-semibold text-slate-600">Vérification de la session…</div>;
@@ -540,6 +549,7 @@ export default function App() {
                   tournament={activeTournament}
                   onNavigate={setCurrentModule}
                   onOpenScoreModal={handleOpenScoreModal}
+                  onUpdateTournament={handleUpdateTournament}
                 />
               ) : currentModule === 'inscriptions' ? (
                 <InscriptionsModule

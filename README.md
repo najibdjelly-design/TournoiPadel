@@ -38,3 +38,15 @@ enable email/password sign-in in the Supabase Auth settings. The migration creat
 row-level security policies and adds tournament and active-tournament state tables to Realtime.
 Users sign in with the same account on each device to share its tournaments. Restart the Vite
 development server after changing environment variables.
+
+## Public participant view on Vercel
+
+Apply `supabase/migrations/20261030000000_public_participant_shares.sql` after the initial schema.
+In Vercel, configure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as server-side environment
+variables. The service-role key must never use a `VITE_` prefix or be exposed to the browser.
+
+From the tournament overview, create and copy the participant link. It opens a read-only page at
+the same Vercel deployment. The API uses the unguessable share token to look up the tournament and
+returns only confirmed pair names/clubs, pair weights, seeds, placement, schedule, scores, and pool
+standings. It does not expose contact, license, payment, or other tournament administration data.
+Disabling the link immediately invalidates it. The page refreshes its data every 30 seconds.

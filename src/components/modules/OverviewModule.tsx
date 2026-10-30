@@ -11,6 +11,9 @@ import {
   Trophy,
   ArrowRight,
   Flame,
+  Copy,
+  Link2,
+  Unlink,
 } from 'lucide-react';
 import { formatScore } from '../../utils/padelCalculations';
 
@@ -18,13 +21,16 @@ interface OverviewModuleProps {
   tournament: Tournament;
   onNavigate: (module: NavigationModule) => void;
   onOpenScoreModal: (match: Match) => void;
+  onUpdateTournament: (updated: Tournament) => void;
 }
 
 export const OverviewModule: React.FC<OverviewModuleProps> = ({
   tournament,
   onNavigate,
   onOpenScoreModal,
+  onUpdateTournament,
 }) => {
+  const [shareFeedback, setShareFeedback] = React.useState<string | null>(null);
   const pairsCount = tournament.pairs.length;
   const confirmedPairs = tournament.pairs.filter(p => p.status === 'confirmed');
   const allMatches: Match[] = [
@@ -48,6 +54,49 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({
     .filter(pl => pl.isPresent).length;
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map(p => [p.id, p]));
+  const participantShareUrl = tournament.publicShareToken
+    ? (() => {
+        const url = new URL(window.location.href);
+        url.search = '';
+        url.hash = '';
+        url.searchParams.set('participants', tournament.publicShareToken);
+        return url.toString();
+      })()
+    : null;
+
+  const handleCreateParticipantLink = () => {
+    if (!window.crypto.randomUUID) {
+      setShareFeedback('Votre navigateur ne permet pas de créer un lien sécurisé.');
+      return;
+    }
+    onUpdateTournament({
+      ...tournament,
+      publicShareToken: window.crypto.randomUUID(),
+    });
+    setShareFeedback('Lien créé. Copiez-le pour le transmettre aux joueurs.');
+  };
+
+  const handleCopyParticipantLink = async () => {
+    if (!participantShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(participantShareUrl);
+      setShareFeedback('Lien copié dans le presse-papiers.');
+    } catch (error) {
+      console.error('Impossible de copier le lien participants :', error);
+      setShareFeedback('Copie impossible. Sélectionnez et copiez le lien affiché.');
+    }
+  };
+
+  const handleRevokeParticipantLink = () => {
+    if (!window.confirm('Désactiver le lien public ? Les joueurs ne pourront plus consulter cette page.')) {
+      return;
+    }
+    onUpdateTournament({
+      ...tournament,
+      publicShareToken: undefined,
+    });
+    setShareFeedback('Lien désactivé.');
+  };
 
   return (
     <div className="space-y-6">
@@ -77,6 +126,58 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({
           </button>
         </div>
       </div>
+
+      <section className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+              <Link2 className="h-4 w-4 text-indigo-700" />
+              Vue joueurs — lien public en lecture seule
+            </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Partagez uniquement les participants confirmés, le programme et les résultats. Les données privées restent masquées.
+            </p>
+          </div>
+          {participantShareUrl ? (
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={handleCopyParticipantLink}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-800"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copier le lien
+              </button>
+              <button
+                type="button"
+                onClick={handleRevokeParticipantLink}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+              >
+                <Unlink className="h-3.5 w-3.5" />
+                Désactiver
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleCreateParticipantLink}
+              className="shrink-0 rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-800"
+            >
+              Créer le lien joueurs
+            </button>
+          )}
+        </div>
+        {participantShareUrl && (
+          <p className="mt-3 break-all rounded-lg border border-indigo-100 bg-white px-3 py-2 font-mono text-[11px] text-slate-600">
+            {participantShareUrl}
+          </p>
+        )}
+        {shareFeedback && (
+          <p role="status" className="mt-2 text-xs font-semibold text-indigo-800">
+            {shareFeedback}
+          </p>
+        )}
+      </section>
 
       {/* 4-Column KPI Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

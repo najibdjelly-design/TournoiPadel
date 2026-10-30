@@ -793,6 +793,7 @@ class BoltDatabaseClient {
         owner_id: userId,
         id: tournament.id,
         data: tournament,
+        public_share_token: tournament.publicShareToken ?? null,
         updated_at: tournament.updatedAt,
       })),
       { onConflict: 'owner_id,id' }
