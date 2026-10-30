@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Tournament, Match, Pair } from '../../types/tournament';
+import { Tournament, Match, Pair, PadelMatchFormat } from '../../types/tournament';
 import {
   generateFullClassificationTournament,
   computeCompleteFinalStandings,
@@ -36,8 +36,13 @@ import {
   resolveMatchOutcomeReferences,
   resolveMatchOutcomePlaceholder,
 } from '../../utils/padelSchedule';
+import { PADEL_MATCH_FORMATS, getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
 
 const CUSTOM_CLASSIFICATION_COHORT_SIZES = [2, 4, 8, 16, 24, 32] as const;
+
+function isPadelMatchFormat(value: string): value is PadelMatchFormat {
+  return PADEL_MATCH_FORMATS.some(format => format.code === value);
+}
 
 function findCustomFinalPlacement(
   orderedRounds: Array<[number, Match[]]>
@@ -1071,6 +1076,25 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       : { ...tournament, consolanteMatches: matches });
   };
 
+  const handleUpdateRoundFormat = (
+    round: number,
+    format: PadelMatchFormat | undefined,
+    table: 'main' | 'consolante'
+  ) => {
+    if (!canEditTableStructure(table)) return;
+    const matchesToUpdate = table === 'main'
+      ? tournament.bracketMatches
+      : tournament.consolanteMatches;
+    const matches = matchesToUpdate.map(match =>
+      (match.bracketRound ?? 1) === round
+        ? { ...match, matchFormat: format }
+        : match
+    );
+    onUpdateTournament(table === 'main'
+      ? { ...tournament, bracketMatches: matches }
+      : { ...tournament, consolanteMatches: matches });
+  };
+
   const toggleRoundLabelEditing = () => {
     if (activeTab === 'main') {
       onUpdateTournament({
@@ -1952,6 +1976,25 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                         aria-label={`Nom du tour ${roundNum}`}
                         className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-extrabold text-slate-900 enabled:hover:border-slate-300 enabled:focus:border-emerald-500 enabled:focus:bg-white enabled:focus:outline-none disabled:cursor-not-allowed"
                       />
+                      <select
+                        value={roundMatches[0]?.matchFormat ?? ''}
+                        onChange={event => handleUpdateRoundFormat(
+                          roundNum,
+                          isPadelMatchFormat(event.target.value) ? event.target.value : undefined,
+                          'main'
+                        )}
+                        disabled={!tournament.bracketLabelsEditable}
+                        aria-label={`Format de jeu du tour ${roundLabel}`}
+                        title={getPadelMatchFormatDescription(roundMatches[0]?.matchFormat) ?? 'Choisir le format de jeu du tour'}
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      >
+                        <option value="">Format du tour</option>
+                        {PADEL_MATCH_FORMATS.map(format => (
+                          <option key={format.code} value={format.code}>
+                            {format.code} · {format.description}
+                          </option>
+                        ))}
+                      </select>
                       <span className="block px-1 text-[11px] text-slate-500">
                         {roundMatches.length} match(s)
                       </span>
@@ -2144,6 +2187,29 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                               aria-label={`Nom du tour ${roundNum}`}
                               className="w-full max-w-[220px] rounded-md border border-transparent bg-transparent px-1 py-1 text-center text-xs font-bold uppercase tracking-wider text-emerald-800 enabled:hover:border-slate-300 enabled:focus:border-emerald-500 enabled:focus:bg-white enabled:focus:outline-none disabled:cursor-not-allowed"
                             />
+                            <select
+                              value={roundMatches[0]?.matchFormat ?? ''}
+                              onChange={event => handleUpdateRoundFormat(
+                                roundNum,
+                                isPadelMatchFormat(event.target.value) ? event.target.value : undefined,
+                                activeTab
+                              )}
+                              disabled={
+                                activeTab === 'main'
+                                  ? !tournament.bracketLabelsEditable
+                                  : !tournament.consolanteLabelsEditable
+                              }
+                              aria-label={`Format de jeu du tour ${roundTitle}`}
+                              title={getPadelMatchFormatDescription(roundMatches[0]?.matchFormat) ?? 'Choisir le format de jeu du tour'}
+                              className="max-w-[72px] shrink-0 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-bold text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
+                            >
+                              <option value="">Format</option>
+                              {PADEL_MATCH_FORMATS.map(format => (
+                                <option key={format.code} value={format.code}>
+                                  {format.code} · {format.description}
+                                </option>
+                              ))}
+                            </select>
                             {activeTab === 'main' && (
                               <button
                                 type="button"

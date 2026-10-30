@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Tournament, Match, Pair, Court, MatchStatus } from '../../types/tournament';
 import { formatScore } from '../../utils/padelCalculations';
+import { getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
 import {
   compactConsolanteLoserSlots,
   applyScheduleAssignments,
@@ -1066,6 +1067,14 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                           <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
                             {!isLive && !isFinished && <GripVertical className="w-3 h-3 shrink-0" />}
                             {match.roundName}
+                            {match.matchFormat && (
+                              <span
+                                className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
+                                title={getPadelMatchFormatDescription(match.matchFormat)}
+                              >
+                                Format {match.matchFormat}
+                              </span>
+                            )}
                           </p>
                           <div className="font-semibold text-slate-900 space-y-0.5">
                             <p className="truncate">
@@ -1242,7 +1251,17 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                   >
                     <div className="flex items-center justify-between text-slate-500">
                       <span className="font-semibold text-slate-800">{m.roundName}</span>
-                      <span className="font-mono text-[10px]">Match #{m.matchNumber}</span>
+                      <span className="flex items-center gap-1.5">
+                        {m.matchFormat && (
+                          <span
+                            className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
+                            title={getPadelMatchFormatDescription(m.matchFormat)}
+                          >
+                            Format {m.matchFormat}
+                          </span>
+                        )}
+                        <span className="font-mono text-[10px]">Match #{m.matchNumber}</span>
+                      </span>
                     </div>
                     <p className="font-medium text-slate-900 truncate">
                       {p1 ? `${p1.player1.firstName} ${p1.player1.lastName} / ${p1.player2.firstName} ${p1.player2.lastName}` : m.pair1Placeholder} vs{' '}

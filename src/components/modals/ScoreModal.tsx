@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Match, MatchScore, Pair, SetScore } from '../../types/tournament';
 import { X, Trophy, AlertTriangle, Plus, Trash2, Check } from 'lucide-react';
+import { getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
 
 interface ScoreModalProps {
   match: Match;
@@ -19,6 +20,7 @@ interface EditableSet {
   tbPair1: number;
   tbPair2: number;
   isSuperTieBreak: boolean;
+  isMatchTieBreak: boolean;
 }
 
 export const ScoreModal: React.FC<ScoreModalProps> = ({
@@ -32,7 +34,16 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  // Initialize editable sets: default to exactly 1 set at 0-0 (as requested)
+  const isThreeSetFormat = match.matchFormat === 'A1' || match.matchFormat === 'A2';
+  const isTwoSetSuperTieBreakFormat = ['B1', 'B2', 'C1', 'C2'].includes(match.matchFormat ?? '');
+  const isTenPointMatchFormat = match.matchFormat === 'E1';
+  const tieBreakGames = match.matchFormat?.startsWith('A') || match.matchFormat?.startsWith('B')
+    ? 6
+    : match.matchFormat?.startsWith('C')
+      ? 4
+      : match.matchFormat?.startsWith('D')
+        ? 8
+        : undefined;
   const initialSets: EditableSet[] = match.score?.sets && match.score.sets.length > 0
     ? match.score.sets.map(s => {
         let tb1 = 7;
@@ -49,16 +60,52 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
           tbPair1: tb1,
           tbPair2: tb2,
           isSuperTieBreak: !!s.isSuperTieBreak,
+          isMatchTieBreak: !!s.isMatchTieBreak,
         };
       })
-    : [
-        { pair1: 0, pair2: 0, hasTieBreak: false, tbPair1: 7, tbPair2: 4, isSuperTieBreak: false },
-      ];
+    : isTenPointMatchFormat
+      ? [{
+          pair1: 0,
+          pair2: 0,
+          hasTieBreak: false,
+          tbPair1: 7,
+          tbPair2: 4,
+          isSuperTieBreak: false,
+          isMatchTieBreak: true,
+        }]
+      : Array.from({ length: isThreeSetFormat || isTwoSetSuperTieBreakFormat ? 2 : 1 }, () => ({
+          pair1: 0,
+          pair2: 0,
+          hasTieBreak: false,
+          tbPair1: 7,
+          tbPair2: 4,
+          isSuperTieBreak: false,
+          isMatchTieBreak: false,
+        }));
 
   const [sets, setSets] = useState<EditableSet[]>(initialSets);
   const [winner, setWinner] = useState<string>(match.winnerPairId || match.pair1Id || '');
   const [isWalkover, setIsWalkover] = useState<boolean>(match.score?.isWalkover || false);
   const [isRetired, setIsRetired] = useState<boolean>(match.score?.isRetired || false);
+
+  const applyScoreSuggestion = (
+    set: EditableSet,
+    team: 'pair1' | 'pair2',
+    value: number
+  ): EditableSet => {
+    const updated = { ...set, [team]: value };
+    if (
+      tieBreakGames !== undefined &&
+      !updated.isSuperTieBreak &&
+      !updated.isMatchTieBreak &&
+      updated.pair1 >= tieBreakGames &&
+      updated.pair2 >= tieBreakGames &&
+      Math.abs(updated.pair1 - updated.pair2) <= 1
+    ) {
+      updated.hasTieBreak = true;
+    }
+    return updated;
+  };
 
   const pair1Label = pair1
     ? `${pair1.player1.firstName} ${pair1.player1.lastName} / ${pair1.player2.firstName} ${pair1.player2.lastName}`
@@ -89,10 +136,9 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
       prev.map((s, idx) => {
         if (idx !== setIdx) return s;
         const currentVal = s[team];
-        const maxVal = s.isSuperTieBreak ? 30 : 25;
+        const maxVal = s.isSuperTieBreak || s.isMatchTieBreak ? 30 : 25;
         return {
-          ...s,
-          [team]: Math.min(maxVal, currentVal + 1),
+          ...applyScoreSuggestion(s, team, Math.min(maxVal, currentVal + 1)),
         };
       })
     );
@@ -104,8 +150,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
         if (idx !== setIdx) return s;
         const currentVal = s[team];
         return {
-          ...s,
-          [team]: Math.max(0, currentVal - 1),
+          ...applyScoreSuggestion(s, team, Math.max(0, currentVal - 1)),
         };
       })
     );
@@ -115,15 +160,15 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
   const handleDirectScoreChange = (setIdx: number, team: 'pair1' | 'pair2', rawVal: string) => {
     if (rawVal === '') {
       setSets(prev =>
-        prev.map((s, idx) => (idx === setIdx ? { ...s, [team]: 0 } : s))
+        prev.map((s, idx) => (idx === setIdx ? applyScoreSuggestion(s, team, 0) : s))
       );
       return;
     }
     const val = parseInt(rawVal, 10);
-    const maxVal = sets[setIdx]?.isSuperTieBreak ? 30 : 25;
+    const maxVal = sets[setIdx]?.isSuperTieBreak || sets[setIdx]?.isMatchTieBreak ? 30 : 25;
     const num = isNaN(val) ? 0 : Math.max(0, Math.min(maxVal, val));
     setSets(prev =>
-      prev.map((s, idx) => (idx === setIdx ? { ...s, [team]: num } : s))
+      prev.map((s, idx) => (idx === setIdx ? applyScoreSuggestion(s, team, num) : s))
     );
   };
 
@@ -182,12 +227,16 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
     setSets(prev =>
       prev.map((s, idx) => {
         if (idx !== setIdx) return s;
-        const willBeSuper = !s.isSuperTieBreak;
+        const isTenPointFormatSet = isTenPointMatchFormat && idx === 0;
+        const willBeSpecial = isTenPointFormatSet
+          ? !s.isMatchTieBreak
+          : !s.isSuperTieBreak;
         return {
           ...s,
-          isSuperTieBreak: willBeSuper,
-          pair1: willBeSuper ? 10 : 6,
-          pair2: willBeSuper ? 7 : 4,
+          isSuperTieBreak: isTenPointFormatSet ? false : willBeSpecial,
+          isMatchTieBreak: isTenPointFormatSet && willBeSpecial,
+          pair1: 0,
+          pair2: 0,
           hasTieBreak: false,
         };
       })
@@ -199,12 +248,13 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
     setSets(prev => [
       ...prev,
       {
-        pair1: isSuper ? 10 : 0,
-        pair2: isSuper ? 7 : 0,
+        pair1: 0,
+        pair2: 0,
         hasTieBreak: false,
         tbPair1: 7,
         tbPair2: 4,
         isSuperTieBreak: isSuper,
+        isMatchTieBreak: false,
       },
     ]);
   };
@@ -220,6 +270,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
       pair2: Number(s.pair2),
       tieBreak: s.hasTieBreak ? `${s.tbPair1}-${s.tbPair2}` : undefined,
       isSuperTieBreak: s.isSuperTieBreak,
+      isMatchTieBreak: s.isMatchTieBreak,
     }));
 
     const scoreData: MatchScore = {
@@ -243,6 +294,11 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
               Feuille de Match #{match.matchNumber} · Saisie Facile (+ / -)
             </span>
             <h3 className="text-base font-extrabold text-slate-900">{match.roundName}</h3>
+            {match.matchFormat && (
+              <p className="mt-1 text-[11px] font-semibold text-slate-600">
+                Format {match.matchFormat} · {getPadelMatchFormatDescription(match.matchFormat)}
+              </p>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -330,10 +386,14 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
               {sets.length === 2 && (
                 <button
                   type="button"
-                  onClick={() => addSet(true)}
-                  className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                  onClick={() => addSet(!isThreeSetFormat)}
+                  className={`px-2.5 py-1 text-xs font-semibold border rounded-lg transition-colors ${
+                    isThreeSetFormat
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                      : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  }`}
                 >
-                  + Super Tie-Break (10 pts)
+                  {isThreeSetFormat ? '+ Ajouter Set 3' : '+ Super Tie-Break (10 pts)'}
                 </button>
               )}
             </div>
@@ -350,14 +410,22 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                   <div className="flex items-center gap-2">
                     <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wide">
-                      {set.isSuperTieBreak ? `Set ${idx + 1} : Super Tie-Break (10 pts)` : `Set ${idx + 1}`}
+                      {set.isMatchTieBreak
+                        ? `Set ${idx + 1} : Match tie-break (10 pts)`
+                        : set.isSuperTieBreak
+                          ? `Set ${idx + 1} : Super Tie-Break (10 pts)`
+                          : `Set ${idx + 1}`}
                     </span>
                     <button
                       type="button"
                       onClick={() => toggleSuperTieBreak(idx)}
                       className="text-[11px] text-emerald-700 hover:text-emerald-900 underline font-medium"
                     >
-                      {set.isSuperTieBreak ? 'Passer en jeux normaux' : 'Passer en Super TB'}
+                      {set.isMatchTieBreak || set.isSuperTieBreak
+                        ? 'Passer en jeux normaux'
+                        : isTenPointMatchFormat && idx === 0
+                          ? 'Passer en match tie-break (10 pts)'
+                          : 'Passer en Super TB'}
                     </button>
                   </div>
 
@@ -390,7 +458,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     <input
                       type="number"
                       min="0"
-                      max={set.isSuperTieBreak ? 30 : 25}
+                      max={set.isSuperTieBreak || set.isMatchTieBreak ? 30 : 25}
                       value={set.pair1}
                       onChange={(e) => handleDirectScoreChange(idx, 'pair1', e.target.value)}
                       className="w-13 sm:w-14 h-9 sm:h-10 text-center font-mono font-extrabold text-xl sm:text-2xl text-slate-900 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 tabular-nums"
@@ -424,7 +492,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     <input
                       type="number"
                       min="0"
-                      max={set.isSuperTieBreak ? 30 : 25}
+                      max={set.isSuperTieBreak || set.isMatchTieBreak ? 30 : 25}
                       value={set.pair2}
                       onChange={(e) => handleDirectScoreChange(idx, 'pair2', e.target.value)}
                       className="w-13 sm:w-14 h-9 sm:h-10 text-center font-mono font-extrabold text-xl sm:text-2xl text-slate-900 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 tabular-nums"
@@ -442,7 +510,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                 </div>
 
                 {/* Tie-break option (for standard set) */}
-                {!set.isSuperTieBreak && (
+                {!set.isSuperTieBreak && !set.isMatchTieBreak && (
                   <div className="pt-2 border-t border-slate-200 space-y-2">
                     <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
                       <input
@@ -451,7 +519,12 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                         onChange={() => toggleTieBreak(idx)}
                         className="w-4 h-4 rounded text-emerald-600 border-slate-300"
                       />
-                      <span>Tie-break joué (ex: 7-6 ou 9-8)</span>
+                      <span>
+                        Tie-break joué
+                        {tieBreakGames !== undefined
+                          ? ` (conseillé à ${tieBreakGames}-${tieBreakGames})`
+                          : ' (ex: 7-6 ou 9-8)'}
+                      </span>
                     </label>
 
                     {set.hasTieBreak && (

@@ -38,6 +38,7 @@ export interface SetScore {
   pair2: number;
   tieBreak?: string; // e.g. "7-4"
   isSuperTieBreak?: boolean;
+  isMatchTieBreak?: boolean;
 }
 
 export interface MatchScore {
@@ -47,6 +48,8 @@ export interface MatchScore {
   isRetired?: boolean;
   retiredPairId?: string;
 }
+
+export type PadelMatchFormat = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'D1' | 'D2' | 'E1';
 
 export type MatchStatus = 'scheduled' | 'warmup' | 'in_progress' | 'completed' | 'walkover';
 export type MatchType = 'pool' | 'bracket' | 'consolante';
@@ -77,6 +80,7 @@ export interface Match {
   durationMinutes?: number;
   bracketRound?: number; // 1 for R16, 2 for QF, 3 for SF, 4 for Final
   bracketRoundName?: string;
+  matchFormat?: PadelMatchFormat;
   bracketSlotIndex?: number;
   nextMatchId?: string;
   nextMatchSlot?: 'pair1' | 'pair2';
