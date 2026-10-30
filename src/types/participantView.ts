@@ -1,14 +1,41 @@
 import { MatchStatus, PadelMatchFormat, TournamentCategory, TournamentGender } from './tournament';
 
+export interface PublicParticipantPlayer {
+  firstName: string;
+  lastName: string;
+  club: string;
+  ranking?: number;
+}
+
 export interface PublicParticipantPair {
-  player1: { firstName: string; lastName: string; club: string };
-  player2: { firstName: string; lastName: string; club: string };
+  id: string;
+  player1: PublicParticipantPlayer;
+  player2: PublicParticipantPlayer;
   totalWeight: number;
   seedRank?: number;
   placement: string;
 }
 
+export interface PublicCourt {
+  id: string;
+  name: string;
+  surface: string;
+}
+
+export interface PublicFinalStanding {
+  rank: number;
+  pairId?: string;
+  pairName: string;
+  club: string;
+  status: 'confirmed' | 'in_progress' | 'pending';
+  detail: string;
+}
+
 export interface PublicParticipantMatch {
+  pair1Id?: string;
+  pair2Id?: string;
+  courtId?: string;
+  winnerPairId?: string;
   matchNumber: number;
   roundName: string;
   status: MatchStatus;
@@ -49,5 +76,7 @@ export interface ParticipantViewData {
   participants: PublicParticipantPair[];
   matches: PublicParticipantMatch[];
   pools: PublicPool[];
+  courts: PublicCourt[];
+  finalStandings: PublicFinalStanding[];
   updatedAt: string;
 }

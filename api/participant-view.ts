@@ -1,14 +1,57 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from 'node:process';
-import type { MatchScore, Tournament } from '../src/types/tournament';
+import type { FinalStandingItem, MatchScore, Tournament } from '../src/types/tournament';
 import type {
   ParticipantViewData,
+  PublicFinalStanding,
   PublicParticipantMatch,
   PublicParticipantPair,
   PublicPool,
 } from '../src/types/participantView';
 
 // Copie locale : un import runtime depuis src/ échoue en ESM sur Vercel (extensions manquantes).
+function computeFinalStandings(tournament: Tournament): FinalStandingItem[] {
+  const allMatches = [...tournament.bracketMatches, ...tournament.consolanteMatches];
+  const confirmedTeams = tournament.pairs.filter(pair => pair.status === 'confirmed').length;
+  const configuredMaxTeams = tournament.bracketSize ??
+    (tournament.bracketMatches.length >= 20 ? 24 : tournament.bracketMatches.length >= 10 ? 16 : 8);
+  const maxTeams = tournament.bracketEntrantCount ??
+    (confirmedTeams > 0 ? Math.min(configuredMaxTeams, confirmedTeams) : configuredMaxTeams);
+  const standings: FinalStandingItem[] = [];
+
+  for (let rank = 1; rank <= maxTeams; rank++) {
+    const decider = allMatches.find(
+      match => match.targetRankWinner === rank || match.targetRankLoser === rank
+    );
+    if (!decider) {
+      standings.push({ rank, status: 'pending', detail: `Place #${rank} non attribuée` });
+      continue;
+    }
+    const isWinnerRank = decider.targetRankWinner === rank;
+    if (decider.status === 'completed' && decider.winnerPairId) {
+      const loserId = decider.winnerPairId === decider.pair1Id ? decider.pair2Id : decider.pair1Id;
+      let detail = isWinnerRank ? `Vainqueur ${decider.roundName}` : `Perdant ${decider.roundName}`;
+      if (rank === 1) detail = 'Champion du tournoi 🏆';
+      else if (rank === 2) detail = 'Finaliste (Vice-champion) 🥈';
+      else if (rank === 3) detail = '3ème place 🥉';
+      standings.push({
+        rank,
+        pairId: isWinnerRank ? decider.winnerPairId : loserId,
+        status: 'confirmed',
+        detail,
+      });
+    } else {
+      standings.push({
+        rank,
+        status: decider.status === 'in_progress' ? 'in_progress' : 'pending',
+        detail: decider.pair1Id && decider.pair2Id
+          ? `En lice : ${decider.roundName}`
+          : `Déterminé par : ${decider.roundName}`,
+      });
+    }
+  }
+  return standings;
+}
 function formatScore(score?: MatchScore): string {
   if (!score || !score.sets || score.sets.length === 0) return 'Non joué';
   if (score.isWalkover) return 'Victoire par WO';
@@ -48,15 +91,18 @@ function createParticipantView(tournament: Tournament): ParticipantViewData {
       candidate => candidate.id === pair.poolId || candidate.pairIds.includes(pair.id)
     );
     const participant: PublicParticipantPair = {
+      id: pair.id,
       player1: {
         firstName: pair.player1.firstName,
         lastName: pair.player1.lastName,
         club: pair.player1.club,
+        ranking: pair.player1.ranking,
       },
       player2: {
         firstName: pair.player2.firstName,
         lastName: pair.player2.lastName,
         club: pair.player2.club,
+        ranking: pair.player2.ranking,
       },
       totalWeight: pair.totalWeight,
       seedRank: pair.seedRank,
@@ -72,6 +118,10 @@ function createParticipantView(tournament: Tournament): ParticipantViewData {
     ...tournament.consolanteMatches,
   ];
   const matches: PublicParticipantMatch[] = allMatches.map(match => ({
+    pair1Id: match.pair1Id && pairsById.has(match.pair1Id) ? match.pair1Id : undefined,
+    pair2Id: match.pair2Id && pairsById.has(match.pair2Id) ? match.pair2Id : undefined,
+    courtId: match.courtId,
+    winnerPairId: match.winnerPairId,
     matchNumber: match.matchNumber,
     roundName: match.roundName,
     status: match.status,
@@ -113,6 +163,24 @@ function createParticipantView(tournament: Tournament): ParticipantViewData {
     participants,
     matches,
     pools,
+    courts: tournament.courts.map(court => ({
+      id: court.id,
+      name: court.name,
+      surface: court.surface,
+    })),
+    finalStandings: computeFinalStandings(tournament).map((item): PublicFinalStanding => {
+      const pair = item.pairId
+        ? confirmedPairs.find(candidate => candidate.id === item.pairId)
+        : undefined;
+      return {
+        rank: item.rank,
+        pairId: pair?.id,
+        pairName: getPairName(item.pairId, pairsById),
+        club: pair?.player1.club ?? '',
+        status: item.status,
+        detail: item.detail,
+      };
+    }),
     updatedAt: tournament.updatedAt,
   };
 }
