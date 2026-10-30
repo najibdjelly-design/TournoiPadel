@@ -162,6 +162,48 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
     return labels;
   }, [visibleBracketMatches, visibleConsolanteMatches]);
 
+  const matchWaits = useMemo(() => {
+    const scheduleDate = tournament.dates.start || new Date().toISOString().slice(0, 10);
+    const targets = new Map<string, { winner: Match[]; loser: Match[] }>();
+    const addTarget = (sourceId: string, outcome: 'winner' | 'loser', target: Match) => {
+      const entry = targets.get(sourceId) ?? { winner: [], loser: [] };
+      if (!entry[outcome].some(existing => existing.id === target.id)) entry[outcome].push(target);
+      targets.set(sourceId, entry);
+    };
+    const byId = new Map(allMatches.map(match => [match.id, match]));
+    for (const match of allMatches) {
+      if (match.nextMatchId && byId.has(match.nextMatchId)) addTarget(match.id, 'winner', byId.get(match.nextMatchId)!);
+      if (match.loserNextMatchId && byId.has(match.loserNextMatchId)) addTarget(match.id, 'loser', byId.get(match.loserNextMatchId)!);
+      for (const slot of ['pair1', 'pair2'] as const) {
+        const sourceId = match[`${slot}SourceMatchId`];
+        const outcome = match[`${slot}SourceOutcome`];
+        if (sourceId && outcome) addTarget(sourceId, outcome, match);
+      }
+    }
+
+    const result = new Map<string, { winner: string | null; loser: string | null }>();
+    const describe = (match: Match, list: Match[]): string | null => {
+      if (list.length === 0) return null;
+      const start = getScheduledStartMinutes(match, scheduleDate);
+      if (start === null) return null;
+      const end = start + (match.durationMinutes ?? slotDuration);
+      const starts = list
+        .map(target => getScheduledStartMinutes(target, scheduleDate))
+        .filter((value): value is number => value !== null);
+      if (starts.length === 0) return 'à planifier';
+      const wait = Math.min(...starts) - end;
+      if (wait < 0) return 'conflit';
+      if (wait === 0) return 'enchaîne';
+      return wait >= 60 ? `${Math.floor(wait / 60)}h${(wait % 60).toString().padStart(2, '0')}` : `${wait} min`;
+    };
+    for (const match of allMatches) {
+      const entry = targets.get(match.id);
+      if (!entry || !match.scheduledTime) continue;
+      result.set(match.id, { winner: describe(match, entry.winner), loser: describe(match, entry.loser) });
+    }
+    return result;
+  }, [allMatches, tournament.dates.start, slotDuration]);
+
   // Compute time slots based on slot duration in minutes
   const timeSlots = useMemo(() => {
     const scheduledMatches = allMatches.filter(match => match.scheduledTime);
@@ -1044,6 +1086,20 @@ export const ProgrammeModule: React.FC<ProgrammeModuleProps> = ({
                               </span>
                             )}
                           </p>
+                          {(matchWaits.get(match.id)?.winner || matchWaits.get(match.id)?.loser) && (
+                            <div className="flex flex-wrap gap-1 text-[10px] font-semibold">
+                              {matchWaits.get(match.id)?.winner && (
+                                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700" title="Attente du vainqueur avant son prochain match">
+                                  ⏱ Vainqueur : {matchWaits.get(match.id)?.winner}
+                                </span>
+                              )}
+                              {matchWaits.get(match.id)?.loser && (
+                                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700" title="Attente du perdant avant son prochain match">
+                                  ⏱ Perdant : {matchWaits.get(match.id)?.loser}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           <div className="font-semibold text-slate-900 space-y-0.5">
                             <p className="truncate">
                               {p1
