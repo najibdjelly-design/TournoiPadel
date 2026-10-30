@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Tournament, Match, Pair, Pool } from '../../types/tournament';
 import { formatScore, generateTimeSlots, computeCompleteFinalStandings } from '../../utils/padelCalculations';
 import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
+import { getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
 import {
   Flame,
   Search,
@@ -17,21 +18,66 @@ import {
   Clock,
   Layers,
   CheckCircle2,
+  Tv,
+  Users,
+  X,
+  Timer,
 } from 'lucide-react';
 
 interface PublicLiveModuleProps {
   tournament: Tournament;
   onExitPublic?: () => void;
+  participantsPanel?: React.ReactNode;
 }
+
+const FormatBadge: React.FC<{ format?: Match['matchFormat'] }> = ({ format }) =>
+  format ? (
+    <span
+      className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-indigo-700"
+      title={getPadelMatchFormatDescription(format)}
+    >
+      Format {format}
+    </span>
+  ) : null;
+
+function getMatchDuration(match: Match): string | null {
+  if (match.status !== 'completed' || !match.startedAt || !match.completedAt) return null;
+  const minutes = Math.round((Date.parse(match.completedAt) - Date.parse(match.startedAt)) / 60000);
+  if (!Number.isFinite(minutes) || minutes < 0) return null;
+  return minutes >= 60
+    ? `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`
+    : `${minutes} min`;
+}
+
+const DurationBadge: React.FC<{ match: Match }> = ({ match }) => {
+  const duration = getMatchDuration(match);
+  return duration ? (
+    <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-slate-500">
+      <Timer className="h-3 w-3" />
+      Durée {duration}
+    </span>
+  ) : null;
+};
+
+type LiveTab = 'participants' | 'courts' | 'schedule' | 'pools' | 'bracket';
+type BracketSubTab = 'main' | 'consolante' | 'standings';
+
+const TV_VIEW_SECONDS = 6;
 
 export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   tournament,
   onExitPublic,
+  participantsPanel,
 }) => {
-  const [activeTab, setActiveTab] = useState<'courts' | 'schedule' | 'pools' | 'bracket'>('courts');
+  const [activeTab, setActiveTab] = useState<LiveTab>(participantsPanel ? 'participants' : 'courts');
   const [searchPlayer, setSearchPlayer] = useState('');
-  const [scheduleViewMode, setScheduleViewMode] = useState<'grid' | 'list'>('grid');
-  const [bracketSubTab, setBracketSubTab] = useState<'main' | 'consolante' | 'standings'>('main');
+  const [scheduleViewMode, setScheduleViewMode] = useState<'grid' | 'list'>(
+    typeof window !== 'undefined' && window.innerWidth < 768 ? 'list' : 'grid'
+  );
+  const [bracketSubTab, setBracketSubTab] = useState<BracketSubTab>('main');
+  const [isTvMode, setIsTvMode] = useState(false);
+  const [tvIndex, setTvIndex] = useState(0);
+  const tvScrollRef = React.useRef(0);
 
   // Pair history modal
   const [selectedPairHistory, setSelectedPairHistory] = useState<Pair | null>(null);
@@ -58,6 +104,9 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
   const liveMatches = allMatches.filter(m => m.status === 'in_progress');
   const upcomingMatches = allMatches.filter(m => m.status === 'scheduled');
+  const scheduledListMatches = allMatches
+    .filter(m => m.status === 'scheduled' || m.status === 'in_progress')
+    .sort((a, b) => (a.scheduledTime ?? '99:99').localeCompare(b.scheduledTime ?? '99:99') || a.matchNumber - b.matchNumber);
   const finishedMatches = allMatches.filter(m => m.status === 'completed');
 
   // Strictly filter bracket matches
@@ -82,6 +131,74 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   }, [activeBracketMatches]);
 
   const sortedRoundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
+
+  // Sequence of screens cycled in TV mode
+  const tvViews = useMemo<Array<{ tab: LiveTab; sub?: BracketSubTab }>>(() => {
+    const views: Array<{ tab: LiveTab; sub?: BracketSubTab }> = [
+      { tab: 'courts' },
+      { tab: 'schedule' },
+      { tab: 'pools' },
+      { tab: 'bracket', sub: 'main' },
+    ];
+    if (consolanteMatches.length > 0) views.push({ tab: 'bracket', sub: 'consolante' });
+    views.push({ tab: 'bracket', sub: 'standings' });
+    return views;
+  }, [consolanteMatches.length]);
+
+  useEffect(() => {
+    if (!isTvMode) return;
+    const view = tvViews[tvIndex % tvViews.length];
+    setActiveTab(view.tab);
+    if (view.sub) setBracketSubTab(view.sub);
+    tvScrollRef.current = 0;
+    window.scrollTo(0, 0);
+  }, [isTvMode, tvIndex, tvViews]);
+
+  // Auto-scroll the current screen, then move to the next one
+  useEffect(() => {
+    if (!isTvMode) return;
+    let frame = 0;
+    let last = performance.now();
+    let waitingSince: number | null = null;
+
+    const tick = (now: number) => {
+      const root = document.scrollingElement ?? document.documentElement;
+      const max = root.scrollHeight - root.clientHeight;
+      if (max > 4 && tvScrollRef.current < max && waitingSince === null) {
+        tvScrollRef.current = Math.min(max, tvScrollRef.current + (now - last) * 0.03);
+        root.scrollTop = tvScrollRef.current;
+      } else if (waitingSince === null) {
+        waitingSince = now;
+      } else if (now - waitingSince > TV_VIEW_SECONDS * 1000) {
+        setTvIndex(index => (index + 1) % tvViews.length);
+        return;
+      }
+      last = now;
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [isTvMode, tvIndex, tvViews.length]);
+
+  useEffect(() => {
+    if (!isTvMode) return;
+    const stopOnExit = () => {
+      if (!document.fullscreenElement) setIsTvMode(false);
+    };
+    document.addEventListener('fullscreenchange', stopOnExit);
+    return () => document.removeEventListener('fullscreenchange', stopOnExit);
+  }, [isTvMode]);
+
+  const toggleTvMode = () => {
+    if (isTvMode) {
+      setIsTvMode(false);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      return;
+    }
+    setTvIndex(0);
+    setIsTvMode(true);
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  };
 
   // Toggle fullscreen
   const toggleFullscreen = () => {
@@ -112,21 +229,21 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Public Header Banner */}
-      <div className="p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+      <div className="p-4 sm:p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 mb-1">
             <span className="font-mono text-emerald-700 font-bold">LIVE SCORE & TOURNOI</span>
             <span>·</span>
             <span className="text-slate-900 font-semibold">{tournament.category} {tournament.gender}</span>
             <span>·</span>
             <span>{tournament.club}</span>
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">{tournament.name}</h1>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">{tournament.name}</h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {/* Multi-screen live indicator */}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-mono font-medium shadow-xs">
             <Radio className="w-3.5 h-3.5 animate-pulse text-emerald-600" />
@@ -134,17 +251,42 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           </div>
 
           <button
+            onClick={toggleTvMode}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors font-medium shadow-xs border ${
+              isTvMode
+                ? 'bg-emerald-600 text-white border-emerald-700'
+                : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-300'
+            }`}
+            title="Défilement automatique des écrans en plein écran"
+          >
+            <Tv className="w-3.5 h-3.5" />
+            <span>{isTvMode ? 'Arrêter le mode TV' : 'Mode TV'}</span>
+          </button>
+
+          <button
             onClick={toggleFullscreen}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors font-medium shadow-xs"
-            title="Activer mode plein écran TV"
+            title="Activer le mode plein écran"
           >
             <Maximize2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Plein Écran TV</span>
+            <span className="hidden sm:inline">Plein écran</span>
           </button>
         </div>
       </div>
 
+      {isTvMode && (
+        <button
+          type="button"
+          onClick={toggleTvMode}
+          className="fixed right-4 top-4 z-50 flex items-center gap-1.5 rounded-full bg-slate-900/80 px-3 py-2 text-xs font-bold text-white shadow-lg backdrop-blur"
+        >
+          <X className="h-3.5 w-3.5" />
+          Quitter le mode TV
+        </button>
+      )}
+
       {/* Quick Player Match Finder Bar */}
+      {!isTvMode && activeTab !== 'participants' && (
       <div className="relative">
         <Search className="w-4 h-4 text-emerald-600 absolute left-4 top-3.5" />
         <input
@@ -163,9 +305,10 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           </button>
         )}
       </div>
+      )}
 
       {/* If Player searched */}
-      {playerFilteredMatches && (
+      {playerFilteredMatches && !isTvMode && activeTab !== 'participants' && (
         <div className="p-5 bg-white border border-slate-200 rounded-xl space-y-3 shadow-xs">
           <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-700">
             Résultats pour &ldquo;{searchPlayer}&rdquo; ({playerFilteredMatches.length} match(s))
@@ -216,6 +359,20 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
       {/* Navigation tabs for spectator */}
       <div className="flex items-center gap-1 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium max-w-full overflow-x-auto whitespace-nowrap">
+        {participantsPanel && (
+          <button
+            onClick={() => setActiveTab('participants')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md transition-colors whitespace-nowrap min-h-[38px] ${
+              activeTab === 'participants'
+                ? 'bg-white text-emerald-800 font-bold border border-slate-200 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+            <span>Participants ({tournament.pairs.length})</span>
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('courts')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md transition-colors whitespace-nowrap min-h-[38px] ${
@@ -265,6 +422,9 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
         </button>
       </div>
 
+      {/* Tab 0: Participants (injected by the player portal) */}
+      {activeTab === 'participants' && participantsPanel}
+
       {/* Tab 1: Live Courts */}
       {activeTab === 'courts' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -299,8 +459,9 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
                 {activeMatch ? (
                   <div className="space-y-3">
-                    <span className="text-xs text-slate-500 font-mono block">
-                      {activeMatch.roundName} · Début {activeMatch.scheduledTime}
+                    <span className="text-xs text-slate-500 font-mono flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span>{activeMatch.roundName} · Début {activeMatch.scheduledTime}</span>
+                      <FormatBadge format={activeMatch.matchFormat} />
                     </span>
 
                     {/* Team 1 */}
@@ -449,6 +610,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                     <span className="font-semibold text-slate-500 truncate">
                                       {match.roundName}
                                     </span>
+                                    <FormatBadge format={match.matchFormat} />
                                     {isLive && (
                                       <span className="font-mono font-bold text-emerald-700 animate-pulse flex items-center gap-1">
                                         <Radio className="w-2.5 h-2.5" /> LIVE
@@ -490,10 +652,14 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                   </div>
 
                                   {match.score && (
-                                    <div className="pt-1 border-t border-slate-100 font-mono font-bold text-[11px] text-emerald-700">
-                                      {formatScore(match.score)}
+                                    <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-2">
+                                      <span className="font-mono font-bold text-[11px] text-emerald-700">
+                                        {formatScore(match.score)}
+                                      </span>
+                                      <DurationBadge match={match} />
                                     </div>
                                   )}
+                                  {!match.score && <DurationBadge match={match} />}
                                 </div>
                               ) : (
                                 <div className="p-3 rounded-lg border border-dashed border-slate-200 text-center text-[11px] text-slate-400 italic">
@@ -514,24 +680,30 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           {/* VIEW 2: Chronological List */}
           {scheduleViewMode === 'list' && (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 shadow-xs">
-              {upcomingMatches.length === 0 ? (
+              {scheduledListMatches.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 text-xs font-medium">
                   Aucun match à venir programmé.
                 </div>
               ) : (
-                upcomingMatches.map((m) => {
+                scheduledListMatches.map((m) => {
                   const p1 = m.pair1Id ? pairsMap.get(m.pair1Id) : undefined;
                   const p2 = m.pair2Id ? pairsMap.get(m.pair2Id) : undefined;
                   const court = tournament.courts.find(c => c.id === m.courtId);
 
                   return (
-                    <div key={m.id} className="p-4 flex items-center justify-between gap-4 text-xs hover:bg-slate-50/60 transition-colors">
-                      <div className="flex items-center gap-4">
-                        <span className="font-mono text-sm font-bold text-emerald-700 w-16">
+                    <div key={m.id} className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-4 text-xs hover:bg-slate-50/60 transition-colors">
+                      <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0">
+                        <span className="font-mono text-sm font-bold text-emerald-700 w-14 sm:w-16 shrink-0">
                           {m.scheduledTime || 'À suivre'}
                         </span>
-                        <div>
-                          <span className="text-slate-500 text-[11px] block">{m.roundName}</span>
+                        <div className="min-w-0">
+                          <span className="text-slate-500 text-[11px] flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span>{m.roundName}</span>
+                            <FormatBadge format={m.matchFormat} />
+                            {m.status === 'in_progress' && (
+                              <span className="font-mono font-bold text-emerald-700">LIVE</span>
+                            )}
+                          </span>
                           <div className="font-semibold text-slate-900 text-sm">
                             <span
                               onClick={() => p1 && setSelectedPairHistory(p1)}
@@ -782,6 +954,9 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                 {sortedRoundNumbers.map((roundNum) => {
                   const roundMatches = bracketRoundsMap.get(roundNum) || [];
                   const sampleMatch = roundMatches[0];
+                  const roundFormats = Array.from(
+                    new Set(roundMatches.flatMap(match => (match.matchFormat ? [match.matchFormat] : [])))
+                  );
 
                   return (
                     <div key={roundNum} className="flex-1 min-w-[220px] flex flex-col space-y-3">
@@ -792,6 +967,13 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                         <span className="block text-[10px] text-slate-400 font-mono">
                           {roundMatches.length} rencontre(s)
                         </span>
+                        {roundFormats.length > 0 && (
+                          <span className="mt-1 flex flex-wrap justify-center gap-1">
+                            {roundFormats.map(format => (
+                              <FormatBadge key={format} format={format} />
+                            ))}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-col justify-around flex-1 space-y-4">
@@ -849,8 +1031,11 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
                               {/* Score */}
                               {m.score && (
-                                <div className="text-center pt-1.5 border-t border-slate-200 font-mono font-bold text-emerald-700 text-xs">
-                                  {formatScore(m.score)}
+                                <div className="text-center pt-1.5 border-t border-slate-200 space-y-0.5">
+                                  <div className="font-mono font-bold text-emerald-700 text-xs">
+                                    {formatScore(m.score)}
+                                  </div>
+                                  <DurationBadge match={m} />
                                 </div>
                               )}
                             </div>

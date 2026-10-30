@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Radio, RefreshCw, Search, Trophy, Users } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import type { Match, Pair, Player } from '../../types/tournament';
 import type { ParticipantViewData } from '../../types/participantView';
 import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
 import { PublicLiveModule } from './PublicLiveModule';
 
-type ParticipantTab = 'participants' | 'live';
 
 function getErrorMessage(body: unknown): string | undefined {
   if (typeof body !== 'object' || body === null || !('error' in body)) return undefined;
@@ -14,7 +13,6 @@ function getErrorMessage(body: unknown): string | undefined {
 
 export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
   const [data, setData] = useState<ParticipantViewData | null>(null);
-  const [activeTab, setActiveTab] = useState<ParticipantTab>('participants');
   const [search, setSearch] = useState('');
   const [selectedPair, setSelectedPair] = useState<Pair | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | undefined>(undefined);
@@ -139,64 +137,13 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
     );
   }
 
-  const tabs: Array<{ id: ParticipantTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'participants', label: `Participants (${tournament.pairs.length})`, icon: Users },
-    { id: 'live', label: 'Tournoi en direct : terrains, poules, tableau', icon: Trophy },
-  ];
-
   const openPair = (pair: Pair, player?: Player) => {
     setSelectedPair(pair);
     setSelectedPlayer(player);
   };
 
-  return (
-    <main className="min-h-screen bg-slate-50 px-3 py-5 text-slate-900 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-7xl space-y-5">
-        {errorMessage && (
-          <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
-            Actualisation impossible : {errorMessage} Les dernières données chargées restent affichées.
-          </p>
-        )}
-
-        <nav className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-slate-100 p-1.5" aria-label="Menu participants">
-          {tabs.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveTab(id)}
-              aria-current={activeTab === id ? 'page' : undefined}
-              className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
-                activeTab === id
-                  ? 'bg-white text-emerald-800 shadow-sm'
-                  : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </button>
-          ))}
-        </nav>
-
-        {activeTab === 'live' && <PublicLiveModule tournament={tournament} />}
-
-        {activeTab === 'participants' && (
-          <>
-            <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-                    Espace joueurs · {tournament.category} {tournament.gender}
-                  </p>
-                  <h1 className="mt-1 text-2xl font-extrabold tracking-tight">{tournament.name}</h1>
-                  <p className="mt-1 text-sm text-slate-600">{tournament.club} · {tournament.city}</p>
-                </div>
-                <div className="inline-flex items-center gap-2 self-start rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
-                  <Radio className="h-3.5 w-3.5 animate-pulse" />
-                  Actualisé toutes les 30 s
-                </div>
-              </div>
-            </header>
-
+  const participantsPanel = (
+    <div className="space-y-4">
             <label className="relative block">
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
@@ -214,24 +161,24 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
               </div>
               {rows.length ? (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] text-left text-xs">
+                  <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
-                        <th className="px-4 py-3 text-center">#</th>
-                        <th className="px-4 py-3">Joueur 1</th>
-                        <th className="px-4 py-3">Joueur 2</th>
-                        <th className="px-4 py-3">Club</th>
-                        <th className="px-4 py-3 text-center">Tête de série</th>
-                        <th className="px-4 py-3 text-center">Poids</th>
-                        <th className="px-4 py-3">Poule / Accès</th>
+                        <th className="px-3 py-3 text-center sm:px-4">#</th>
+                        <th className="px-3 py-3 sm:px-4">Joueur 1</th>
+                        <th className="px-3 py-3 sm:px-4">Joueur 2</th>
+                        <th className="hidden px-4 py-3 md:table-cell">Club</th>
+                        <th className="hidden px-4 py-3 text-center sm:table-cell">Tête de série</th>
+                        <th className="hidden px-4 py-3 text-center sm:table-cell">Poids</th>
+                        <th className="px-3 py-3 sm:px-4">Poule</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {rows.map(({ pair, placement }, index) => (
                         <tr key={pair.id} className="hover:bg-slate-50/80">
-                          <td className="px-4 py-3 text-center font-mono text-slate-500">{index + 1}</td>
+                          <td className="px-3 py-3 text-center font-mono text-slate-500 sm:px-4">{index + 1}</td>
                           {[pair.player1, pair.player2].map(player => (
-                            <td key={player.id} className="px-4 py-3 font-semibold">
+                            <td key={player.id} className="px-3 py-3 font-semibold sm:px-4">
                               <button
                                 type="button"
                                 onClick={() => openPair(pair, player)}
@@ -241,18 +188,18 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
                               </button>
                             </td>
                           ))}
-                          <td className="px-4 py-3 text-slate-600">
+                          <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
                             {[pair.player1.club, pair.player2.club]
                               .filter((club, i, list) => club && list.indexOf(club) === i)
                               .join(' · ') || 'Club non renseigné'}
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="hidden px-4 py-3 text-center sm:table-cell">
                             {pair.seedRank ? (
                               <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 font-bold text-amber-800">TS {pair.seedRank}</span>
                             ) : '—'}
                           </td>
-                          <td className="px-4 py-3 text-center font-mono text-slate-700">{pair.totalWeight}</td>
-                          <td className="px-4 py-3">
+                          <td className="hidden px-4 py-3 text-center font-mono text-slate-700 sm:table-cell">{pair.totalWeight}</td>
+                          <td className="px-3 py-3 sm:px-4">
                             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-800">{placement}</span>
                           </td>
                         </tr>
@@ -264,8 +211,19 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
                 <p className="px-5 py-8 text-center text-sm text-slate-500">Aucune paire confirmée ne correspond à la recherche.</p>
               )}
             </section>
-          </>
+    </div>
+  );
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-3 py-4 text-slate-900 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-7xl space-y-4">
+        {errorMessage && (
+          <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+            Actualisation impossible : {errorMessage} Les dernières données chargées restent affichées.
+          </p>
         )}
+
+        <PublicLiveModule tournament={tournament} participantsPanel={participantsPanel} />
 
         <footer className="flex items-center justify-center gap-1.5 pb-2 text-[11px] text-slate-400">
           <RefreshCw className="h-3 w-3" />
