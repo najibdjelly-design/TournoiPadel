@@ -458,19 +458,27 @@ function getScheduleStart(startTime: string, options: ScheduleOptions): Date {
   return start;
 }
 
+function jitter(id: string, seed: number): number {
+  let hash = 2166136261 ^ seed;
+  for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
+  hash = Math.imul(hash ^ (hash >>> 15), 2246822507);
+  return ((hash ^ (hash >>> 13)) >>> 0) / 4294967296;
+}
+
 function formatTime(date: Date): string {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 }
 
-export function createConflictFreeSchedule(
+function buildSchedule(
   pools: Pool[],
   bracketMatches: Match[],
   consolanteMatches: Match[],
   courts: Court[],
   startTime: string,
   slotDuration: number,
-  options: ScheduleOptions = {}
-): Map<string, ScheduleAssignment> {
+  options: ScheduleOptions,
+  seed: number
+): { assignments: Map<string, ScheduleAssignment>; waits: number[]; endMs: number } {
   if (!courts.length) throw new Error('Au moins un terrain est nécessaire.');
 
   const scheduleStart = getScheduleStart(startTime, options);
@@ -699,6 +707,7 @@ export function createConflictFreeSchedule(
         match: Match;
         court: Court;
         startAt: number;
+        tieKey: number;
       } | undefined;
 
       for (const match of pending) {
@@ -721,17 +730,21 @@ export function createConflictFreeSchedule(
             hooks.barrierFor ? hooks.barrierFor(match) : startBarrier,
             courtAvailableAt.get(court.id) ?? startMs
           );
+          const tieKey = pairReadyAt + (seed > 0 ? jitter(match.id, seed) * slotDuration * 60_000 * 2 : 0);
           const priority = hooks.priorityOf?.(match) ?? 0;
           const bestPriority = best ? hooks.priorityOf?.(best.match) ?? 0 : 0;
           if (
             !best ||
             startAt < best.startAt ||
             (startAt === best.startAt && (
-              priority > bestPriority ||
-              (priority === bestPriority && match.matchNumber < best.match.matchNumber)
+              tieKey < best.tieKey ||
+              (tieKey === best.tieKey && (
+                priority > bestPriority ||
+                (priority === bestPriority && match.matchNumber < best.match.matchNumber)
+              ))
             ))
           ) {
-            best = { match, court, startAt };
+            best = { match, court, startAt, tieKey };
           }
         }
       }
@@ -768,12 +781,28 @@ export function createConflictFreeSchedule(
     return true;
   };
 
+  const finish = () => {
+    const waits: number[] = [];
+    let endMs = 0;
+    for (const match of allMatches) {
+      const assignment = assignments.get(match.id);
+      if (!assignment) continue;
+      const endAt = Date.parse(assignment.scheduledAt) + (match.durationMinutes ?? slotDuration) * 60_000;
+      endMs = Math.max(endMs, endAt);
+      for (const target of outgoing.get(match.id) ?? []) {
+        const targetAssignment = assignments.get(target.targetId);
+        if (targetAssignment) waits.push(Date.parse(targetAssignment.scheduledAt) - endAt);
+      }
+    }
+    return { assignments, waits, endMs };
+  };
+
   let stageBarrier = startMs;
   for (const phase of poolStages) {
     const phasePending = scheduledPending.filter(match => phase.includes(match));
-    if (!scheduleReadyMatches(phasePending, stageBarrier)) return assignments;
+    if (!scheduleReadyMatches(phasePending, stageBarrier)) return finish();
     const phaseEnds = phase.map(getMatchEndAt);
-    if (phaseEnds.some(endAt => endAt === undefined)) return assignments;
+    if (phaseEnds.some(endAt => endAt === undefined)) return finish();
     stageBarrier = Math.max(stageBarrier, ...phaseEnds as number[]);
   }
 
@@ -815,7 +844,45 @@ export function createConflictFreeSchedule(
     onScheduled: advanceStages,
   });
 
-  return assignments;
+  return finish();
+}
+
+// Several tie-break orders are tried; the one that ends first, then makes
+// teams wait the least, is kept.
+export function createConflictFreeSchedule(
+  pools: Pool[],
+  bracketMatches: Match[],
+  consolanteMatches: Match[],
+  courts: Court[],
+  startTime: string,
+  slotDuration: number,
+  options: ScheduleOptions = {}
+): Map<string, ScheduleAssignment> {
+  let best: ReturnType<typeof buildSchedule> | undefined;
+  let bestScore: number[] = [];
+  for (let seed = 0; seed < 60; seed++) {
+    const candidate = buildSchedule(pools, bracketMatches, consolanteMatches, courts, startTime, slotDuration, options, seed);
+    const score = [
+      -candidate.assignments.size,
+      candidate.endMs,
+      Math.max(0, ...candidate.waits),
+      candidate.waits.reduce((sum, wait) => sum + wait, 0),
+    ];
+    let better = !best;
+    if (best) {
+      for (let i = 0; i < score.length; i++) {
+        if (score[i] !== bestScore[i]) {
+          better = score[i] < bestScore[i];
+          break;
+        }
+      }
+    }
+    if (better) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best!.assignments;
 }
 
 export interface BracketScheduleStage {
