@@ -1,13 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from 'node:process';
-import type { Tournament } from '../src/types/tournament';
+import type { MatchScore, Tournament } from '../src/types/tournament';
 import type {
   ParticipantViewData,
   PublicParticipantMatch,
   PublicParticipantPair,
   PublicPool,
 } from '../src/types/participantView';
-import { formatScore } from '../src/utils/padelCalculations';
+
+// Copie locale : un import runtime depuis src/ échoue en ESM sur Vercel (extensions manquantes).
+function formatScore(score?: MatchScore): string {
+  if (!score || !score.sets || score.sets.length === 0) return 'Non joué';
+  if (score.isWalkover) return 'Victoire par WO';
+  return score.sets
+    .map(s => `${s.pair1}-${s.pair2}${s.tieBreak ? `(${s.tieBreak})` : ''}`)
+    .join(' ');
+}
 
 interface ApiRequest {
   method?: string;
