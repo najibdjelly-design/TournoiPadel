@@ -3,6 +3,7 @@ import { Tournament, Match, Pair, Pool } from '../../types/tournament';
 import { formatScore, generateTimeSlots, computeCompleteFinalStandings } from '../../utils/padelCalculations';
 import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
 import { getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
+import { getCompetitionPoints } from '../../utils/competitionPoints';
 import { DEFAULT_TV_PAGES, type TvPageId } from '../../utils/tvPages';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -166,6 +167,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   const [selectedPoolForHistory, setSelectedPoolForHistory] = useState<Pool | undefined>(undefined);
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map(p => [p.id, p]));
+  const confirmedPairsCount = tournament.pairs.filter(pair => pair.status === 'confirmed').length;
 
   const allMatches: Match[] = useMemo(() => {
     return [
@@ -770,7 +772,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                 <span>Programmation par terrain ({tournament.courts.length} pistes)</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Créneau de {tournament.slotDurationMinutes || 75} minutes par rencontre · Cliquez sur les noms pour voir les historiques
+                Cliquez sur les noms pour voir les historiques
               </p>
             </div>
 
@@ -1128,7 +1130,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold uppercase tracking-wider text-[11px]">
-                      <th className="py-3 px-4 w-16 text-center">Rang</th>
+                      <th className="py-3 px-4 text-center">Rang · points FFT / joueur</th>
                       <th className="py-3 px-4">Équipe</th>
                       <th className="py-3 px-4 hidden md:table-cell">Club</th>
                       <th className="py-3 px-4">Statut</th>
@@ -1160,6 +1162,12 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                               }`}
                             >
                               {item.rank}
+                            </span>
+                            <span
+                              className="ml-2 whitespace-nowrap text-xs font-bold text-indigo-800"
+                              title={`Points FFT individuels · ${confirmedPairsCount} paire(s) confirmée(s) · ${tournament.category}`}
+                            >
+                              {getCompetitionPoints(tournament.category, confirmedPairsCount, item.rank) ?? '—'} pts
                             </span>
                           </td>
                           <td className="py-3 px-4 font-bold text-slate-900">

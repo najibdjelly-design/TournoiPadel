@@ -5,6 +5,7 @@ import {
   computeCompleteFinalStandings,
   formatScore,
 } from '../../utils/padelCalculations';
+import { getCompetitionPoints } from '../../utils/competitionPoints';
 import {
   GitBranch,
   Trophy,
@@ -1856,7 +1857,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold uppercase tracking-wider text-[11px]">
-                    <th className="py-3 px-4 w-20">Rang</th>
+                    <th className="py-3 px-4">Rang · points FFT / joueur</th>
                     <th className="py-3 px-4">Paire Joueurs</th>
                     <th className="py-3 px-4 hidden md:table-cell">Club & Tête de série</th>
                     <th className="py-3 px-4">Statut</th>
@@ -1888,6 +1889,12 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                             }`}
                           >
                             {item.rank}
+                          </span>
+                          <span
+                            className="ml-2 whitespace-nowrap text-xs font-bold text-indigo-800"
+                            title={`Points FFT individuels · ${confirmedPairsCount} paire(s) confirmée(s) · ${tournament.category}`}
+                          >
+                            {getCompetitionPoints(tournament.category, confirmedPairsCount, item.rank) ?? '—'} pts
                           </span>
                         </td>
                         <td className="py-3 px-4 font-bold text-slate-900">
