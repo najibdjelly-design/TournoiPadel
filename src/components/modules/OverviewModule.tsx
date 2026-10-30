@@ -14,8 +14,15 @@ import {
   Copy,
   Link2,
   Unlink,
+  Tv,
 } from 'lucide-react';
 import { formatScore } from '../../utils/padelCalculations';
+import {
+  buildParticipantShareUrl,
+  DEFAULT_TV_PAGES,
+  TV_PAGE_OPTIONS,
+  type TvPageId,
+} from '../../utils/tvPages';
 
 interface OverviewModuleProps {
   tournament: Tournament;
@@ -55,16 +62,19 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({
 
   const pairsMap = new Map<string, Pair>(tournament.pairs.map(p => [p.id, p]));
   const participantShareUrl = tournament.publicShareToken
-    ? (() => {
-        const publicBaseUrl = (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)?.trim();
-        const url = new URL(publicBaseUrl || window.location.href);
-        url.pathname = '/';
-        url.search = '';
-        url.hash = '';
-        url.searchParams.set('participants', tournament.publicShareToken);
-        return url.toString();
-      })()
+    ? buildParticipantShareUrl(tournament.publicShareToken)
     : null;
+  const selectedTvPages = tournament.tvPages ?? DEFAULT_TV_PAGES;
+
+  const handleToggleTvPage = (pageId: TvPageId) => {
+    const next = selectedTvPages.includes(pageId)
+      ? selectedTvPages.filter(id => id !== pageId)
+      : [...selectedTvPages, pageId];
+    onUpdateTournament({
+      ...tournament,
+      tvPages: TV_PAGE_OPTIONS.map(option => option.id).filter(id => next.includes(id)),
+    });
+  };
 
   const handleCreateParticipantLink = () => {
     if (!window.crypto.randomUUID) {
@@ -179,6 +189,29 @@ export const OverviewModule: React.FC<OverviewModuleProps> = ({
             {shareFeedback}
           </p>
         )}
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+          <Tv className="h-4 w-4 text-emerald-700" />
+          Pages du mode TV
+        </h2>
+        <p className="mt-1 text-xs text-slate-600">
+          Choisissez les écrans qui défilent en mode TV (console et lien joueurs). Les pages sans contenu sont de toute façon ignorées.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {TV_PAGE_OPTIONS.map(option => (
+            <label key={option.id} className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+              <input
+                type="checkbox"
+                checked={selectedTvPages.includes(option.id)}
+                onChange={() => handleToggleTvPage(option.id)}
+                className="h-4 w-4 accent-emerald-600"
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
       </section>
 
       {/* 4-Column KPI Grid */}

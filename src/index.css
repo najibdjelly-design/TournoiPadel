@@ -29,3 +29,14 @@
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+.tv-mode :is(
+  [class~="text-[10px]"],
+  [class~="text-[11px]"],
+  [class~="text-xs"],
+  [class~="text-sm"],
+  [class~="text-base"]
+) {
+  font-size: 1.25em !important;
+  line-height: 1.35 !important;
+}

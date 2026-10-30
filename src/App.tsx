@@ -25,6 +25,7 @@ import { ScoreModal } from './components/modals/ScoreModal';
 import { NewTournamentModal } from './components/modals/NewTournamentModal';
 import { TournamentsManagerModal } from './components/modals/TournamentsManagerModal';
 import { computePoolStandings } from './utils/padelCalculations';
+import { buildTvShareUrl } from './utils/tvPages';
 import {
   compactConsolanteLoserSlots,
   resolveMatchOutcomeReferences,
@@ -512,6 +513,7 @@ export default function App() {
             <PublicLiveModule
               tournament={activeTournament}
               onExitPublic={handleTogglePublicMode}
+              qrUrl={activeTournament.publicShareToken ? buildTvShareUrl(activeTournament.publicShareToken) : undefined}
             />
           ) : (
             <div className="py-20 text-center text-slate-400">

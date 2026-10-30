@@ -3,6 +3,8 @@ import { Tournament, Match, Pair, Pool } from '../../types/tournament';
 import { formatScore, generateTimeSlots, computeCompleteFinalStandings } from '../../utils/padelCalculations';
 import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
 import { getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
+import { DEFAULT_TV_PAGES, type TvPageId } from '../../utils/tvPages';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   Flame,
   Search,
@@ -28,6 +30,9 @@ interface PublicLiveModuleProps {
   tournament: Tournament;
   onExitPublic?: () => void;
   participantsPanel?: React.ReactNode;
+  qrUrl?: string;
+  followedPairIds?: string[];
+  initialTvMode?: boolean;
 }
 
 const FormatBadge: React.FC<{ format?: Match['matchFormat'] }> = ({ format }) =>
@@ -59,23 +64,96 @@ const DurationBadge: React.FC<{ match: Match }> = ({ match }) => {
   ) : null;
 };
 
-type LiveTab = 'participants' | 'courts' | 'schedule' | 'pools' | 'bracket';
+type LiveTab = 'participants' | 'my-matches' | 'courts' | 'schedule' | 'pools' | 'bracket';
 type BracketSubTab = 'main' | 'consolante' | 'standings';
 
 const TV_VIEW_SECONDS = 6;
+
+function getScheduledTimestamp(match: Match, tournament: Tournament): number | undefined {
+  const scheduledAt = match.scheduledAt ? Date.parse(match.scheduledAt) : NaN;
+  if (Number.isFinite(scheduledAt)) return scheduledAt;
+  if (!match.scheduledTime) return undefined;
+  const date = tournament.dates.start || new Date().toISOString().slice(0, 10);
+  const timestamp = Date.parse(`${date}T${match.scheduledTime}:00`);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function formatCountdown(timestamp: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((timestamp - now) / 1000));
+  if (seconds === 0) return 'Imminent';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  if (hours > 0) return `dans ${hours} h ${String(minutes).padStart(2, '0')}`;
+  if (minutes > 0) return `dans ${minutes} min ${String(remainingSeconds).padStart(2, '0')} s`;
+  return `dans ${remainingSeconds} s`;
+}
+
+const UpcomingMatchesBanner: React.FC<{
+  matches: Array<{ match: Match; timestamp?: number }>;
+  tournament: Tournament;
+  pairsMap: Map<string, Pair>;
+  isTvMode: boolean;
+}> = ({ matches, tournament, pairsMap, isTvMode }) => {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!matches.some(item => item.timestamp && item.timestamp > Date.now())) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [matches]);
+
+  if (!matches.length) return null;
+  return (
+    <section className={`rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm ${isTvMode ? 'sm:p-6' : ''}`}>
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-amber-950 sm:text-base">
+        <Clock className="h-5 w-5" />
+        Prochains matchs
+      </h2>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {matches.map(({ match, timestamp }) => {
+          const pair1 = match.pair1Id ? pairsMap.get(match.pair1Id) : undefined;
+          const pair2 = match.pair2Id ? pairsMap.get(match.pair2Id) : undefined;
+          return (
+            <div key={match.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2 text-xs font-bold text-amber-900">
+                <span>{match.roundName}</span>
+                <span className="shrink-0">{timestamp && timestamp > now ? formatCountdown(timestamp, now) : match.scheduledTime || 'Horaire à confirmer'}</span>
+              </div>
+              <p className="mt-1 text-sm font-semibold text-slate-800">
+                {pair1 ? `${pair1.player1.firstName} ${pair1.player1.lastName} / ${pair1.player2.firstName} ${pair1.player2.lastName}` : match.pair1Placeholder || 'Paire à confirmer'}
+                {' vs '}
+                {pair2 ? `${pair2.player1.firstName} ${pair2.player1.lastName} / ${pair2.player2.firstName} ${pair2.player2.lastName}` : match.pair2Placeholder || 'Paire à confirmer'}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {match.courtId ? tournament.courts.find(court => court.id === match.courtId)?.name ?? 'Piste à confirmer' : 'Piste à confirmer'}
+                {match.scheduledTime ? ` · ${match.scheduledTime}` : ''}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
 
 export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   tournament,
   onExitPublic,
   participantsPanel,
+  qrUrl,
+  followedPairIds = [],
+  initialTvMode = false,
 }) => {
-  const [activeTab, setActiveTab] = useState<LiveTab>(participantsPanel ? 'participants' : 'courts');
+  const [activeTab, setActiveTab] = useState<LiveTab>(
+    initialTvMode ? 'courts' : participantsPanel ? 'participants' : 'courts'
+  );
   const [searchPlayer, setSearchPlayer] = useState('');
   const [scheduleViewMode, setScheduleViewMode] = useState<'grid' | 'list'>(
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'list' : 'grid'
   );
   const [bracketSubTab, setBracketSubTab] = useState<BracketSubTab>('main');
-  const [isTvMode, setIsTvMode] = useState(false);
+  const [isTvMode, setIsTvMode] = useState(initialTvMode);
   const [tvIndex, setTvIndex] = useState(0);
   const tvScrollRef = React.useRef(0);
 
@@ -104,6 +182,10 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
   const liveMatches = allMatches.filter(m => m.status === 'in_progress');
   const upcomingMatches = allMatches.filter(m => m.status === 'scheduled');
+  const tvUpcomingMatches = upcomingMatches
+    .map(match => ({ match, timestamp: getScheduledTimestamp(match, tournament) }))
+    .sort((a, b) => (a.timestamp ?? Number.POSITIVE_INFINITY) - (b.timestamp ?? Number.POSITIVE_INFINITY))
+    .slice(0, 3);
   const scheduledListMatches = allMatches
     .filter(m => m.status === 'scheduled' || m.status === 'in_progress')
     .sort((a, b) => (a.scheduledTime ?? '99:99').localeCompare(b.scheduledTime ?? '99:99') || a.matchNumber - b.matchNumber);
@@ -117,6 +199,21 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   const consolanteMatches = useMemo(() => {
     return tournament.consolanteMatches.filter(m => m.type === 'consolante');
   }, [tournament.consolanteMatches]);
+
+  const myMatches = allMatches
+    .filter(match => followedPairIds.includes(match.pair1Id ?? '') || followedPairIds.includes(match.pair2Id ?? ''))
+    .sort((a, b) =>
+      (getScheduledTimestamp(a, tournament) ?? Number.POSITIVE_INFINITY) -
+        (getScheduledTimestamp(b, tournament) ?? Number.POSITIVE_INFINITY) ||
+      a.matchNumber - b.matchNumber
+    );
+
+  useEffect(() => {
+    if (!initialTvMode) return;
+    document.documentElement.requestFullscreen?.().catch(error => {
+      console.info('Le navigateur n’a pas autorisé le plein écran automatique du mode TV :', error);
+    });
+  }, [initialTvMode]);
 
   // Group bracket matches by round
   const activeBracketMatches = bracketSubTab === 'main' ? mainBracketMatches : consolanteMatches;
@@ -132,18 +229,25 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
   const sortedRoundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
 
-  // Sequence of screens cycled in TV mode
+  // Sequence of screens cycled in TV mode: only the pages chosen by the referee that have content
   const tvViews = useMemo<Array<{ tab: LiveTab; sub?: BracketSubTab }>>(() => {
-    const views: Array<{ tab: LiveTab; sub?: BracketSubTab }> = [
-      { tab: 'courts' },
-      { tab: 'schedule' },
-      { tab: 'pools' },
-      { tab: 'bracket', sub: 'main' },
-    ];
-    if (consolanteMatches.length > 0) views.push({ tab: 'bracket', sub: 'consolante' });
-    views.push({ tab: 'bracket', sub: 'standings' });
-    return views;
-  }, [consolanteMatches.length]);
+    const selected = tournament.tvPages ?? DEFAULT_TV_PAGES;
+    const hasContent: Record<TvPageId, boolean> = {
+      courts: tournament.courts.length > 0,
+      schedule: allMatches.some(m => m.scheduledTime || m.courtId),
+      pools: tournament.pools.length > 0,
+      'bracket-main': mainBracketMatches.length > 0,
+      'bracket-consolante': consolanteMatches.length > 0,
+      'bracket-standings': mainBracketMatches.length > 0,
+    };
+    const views: Array<{ tab: LiveTab; sub?: BracketSubTab }> = [];
+    for (const page of DEFAULT_TV_PAGES) {
+      if (!selected.includes(page) || !hasContent[page]) continue;
+      if (page === 'courts' || page === 'schedule' || page === 'pools') views.push({ tab: page });
+      else views.push({ tab: 'bracket', sub: page.replace('bracket-', '') as BracketSubTab });
+    }
+    return views.length ? views : [{ tab: 'courts' }];
+  }, [tournament.tvPages, tournament.courts.length, tournament.pools.length, allMatches, mainBracketMatches.length, consolanteMatches.length]);
 
   useEffect(() => {
     if (!isTvMode) return;
@@ -229,7 +333,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     : null;
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className={`space-y-4 sm:space-y-6 ${isTvMode ? 'tv-mode pb-32' : ''}`}>
       {/* Public Header Banner */}
       <div className="p-4 sm:p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs">
         <div className="min-w-0">
@@ -283,6 +387,29 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           <X className="h-3.5 w-3.5" />
           Quitter le mode TV
         </button>
+      )}
+
+      <UpcomingMatchesBanner
+        matches={tvUpcomingMatches}
+        tournament={tournament}
+        pairsMap={pairsMap}
+        isTvMode={isTvMode}
+      />
+
+      {isTvMode && qrUrl && (
+        <>
+          {(['left-4', 'right-4'] as const).map(position => (
+            <a
+              key={position}
+              href={qrUrl}
+              className={`fixed ${position} bottom-4 z-40 flex flex-col items-center gap-1 rounded-xl bg-white/95 p-2 shadow-xl ring-1 ring-slate-300`}
+              aria-label="Ouvrir le mode TV sur un autre appareil avec le QR code"
+            >
+              <QRCodeSVG value={qrUrl} size={88} level="M" />
+              <span className="text-[10px] font-extrabold text-slate-800">Mode TV</span>
+            </a>
+          ))}
+        </>
       )}
 
       {/* Quick Player Match Finder Bar */}
@@ -373,6 +500,20 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           </button>
         )}
 
+        {followedPairIds.length > 0 && (
+          <button
+            onClick={() => setActiveTab('my-matches')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md transition-colors whitespace-nowrap min-h-[38px] ${
+              activeTab === 'my-matches'
+                ? 'bg-white text-emerald-800 font-bold border border-slate-200 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+            <span>Mes matchs ({myMatches.length})</span>
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('courts')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md transition-colors whitespace-nowrap min-h-[38px] ${
@@ -421,6 +562,44 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           <span>Tableau Final & Consolante</span>
         </button>
       </div>
+
+      {activeTab === 'my-matches' && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-extrabold text-slate-900">Mes matchs</h2>
+          {myMatches.length ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {myMatches.map(match => {
+                const pair1 = match.pair1Id ? pairsMap.get(match.pair1Id) : undefined;
+                const pair2 = match.pair2Id ? pairsMap.get(match.pair2Id) : undefined;
+                const court = tournament.courts.find(item => item.id === match.courtId);
+                return (
+                  <article key={match.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="font-bold text-slate-900">{match.roundName}</h3>
+                      <span className="font-mono text-sm font-bold text-emerald-800">
+                        {court?.name ?? 'Piste à confirmer'} · {match.scheduledTime ?? 'Horaire à confirmer'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-slate-800">
+                      {pair1 ? `${pair1.player1.firstName} ${pair1.player1.lastName} / ${pair1.player2.firstName} ${pair1.player2.lastName}` : match.pair1Placeholder || 'Paire à confirmer'}
+                      {' vs '}
+                      {pair2 ? `${pair2.player1.firstName} ${pair2.player1.lastName} / ${pair2.player2.firstName} ${pair2.player2.lastName}` : match.pair2Placeholder || 'Paire à confirmer'}
+                    </p>
+                    {match.score && <p className="mt-2 font-mono font-bold text-emerald-800">{formatScore(match.score)}</p>}
+                    <p className="mt-2 text-xs font-semibold uppercase text-slate-500">
+                      {match.status === 'in_progress' ? 'En cours' : match.status === 'completed' ? 'Terminé' : 'À venir'}
+                    </p>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+              Aucun match trouvé pour les paires suivies.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Tab 0: Participants (injected by the player portal) */}
       {activeTab === 'participants' && participantsPanel}

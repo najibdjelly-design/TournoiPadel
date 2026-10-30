@@ -4,6 +4,7 @@ import type { Match, Pair, Player } from '../../types/tournament';
 import type { ParticipantViewData } from '../../types/participantView';
 import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
 import { PublicLiveModule } from './PublicLiveModule';
+import { buildTvShareUrl } from '../../utils/tvPages';
 
 
 function getErrorMessage(body: unknown): string | undefined {
@@ -18,6 +19,47 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [followedPairIds, setFollowedPairIds] = useState<string[]>([]);
+  const [followStorageLoaded, setFollowStorageLoaded] = useState(false);
+  const [followStorageError, setFollowStorageError] = useState<string | null>(null);
+  const followStorageKey = `padel-followed-pairs:${token}`;
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(followStorageKey);
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.every(id => typeof id === 'string')) {
+          setFollowedPairIds(parsed);
+        } else {
+          console.error('La liste locale des paires suivies est invalide.');
+          setFollowStorageError('Les paires suivies enregistrées sur cet appareil sont invalides.');
+        }
+      }
+    } catch (error) {
+      console.error('Impossible de lire les paires suivies sur cet appareil :', error);
+      setFollowStorageError('La mémoire locale est inaccessible ; les paires suivies ne seront pas restaurées.');
+    } finally {
+      setFollowStorageLoaded(true);
+    }
+  }, [followStorageKey]);
+
+  useEffect(() => {
+    if (!followStorageLoaded) return;
+    try {
+      window.localStorage.setItem(followStorageKey, JSON.stringify(followedPairIds));
+      setFollowStorageError(null);
+    } catch (error) {
+      console.error('Impossible d’enregistrer les paires suivies sur cet appareil :', error);
+      setFollowStorageError('Impossible de mémoriser les paires suivies sur cet appareil.');
+    }
+  }, [followStorageKey, followStorageLoaded, followedPairIds]);
+
+  const toggleFollowPair = (pairId: string) => {
+    setFollowedPairIds(current =>
+      current.includes(pairId) ? current.filter(id => id !== pairId) : [...current, pairId]
+    );
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -171,6 +213,7 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
                         <th className="hidden px-4 py-3 text-center sm:table-cell">Tête de série</th>
                         <th className="hidden px-4 py-3 text-center sm:table-cell">Poids</th>
                         <th className="px-3 py-3 sm:px-4">Poule</th>
+                        <th className="px-3 py-3 text-center sm:px-4">Mes matchs</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -202,6 +245,20 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
                           <td className="px-3 py-3 sm:px-4">
                             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-800">{placement}</span>
                           </td>
+                          <td className="px-3 py-3 text-center sm:px-4">
+                            <button
+                              type="button"
+                              onClick={() => toggleFollowPair(pair.id)}
+                              aria-pressed={followedPairIds.includes(pair.id)}
+                              className={`rounded-lg px-2.5 py-1.5 text-xs font-bold ${
+                                followedPairIds.includes(pair.id)
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-slate-100 text-slate-700 hover:bg-emerald-50'
+                              }`}
+                            >
+                              {followedPairIds.includes(pair.id) ? 'Suivie' : 'Suivre'}
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -222,8 +279,19 @@ export const ParticipantPortal: React.FC<{ token: string }> = ({ token }) => {
             Actualisation impossible : {errorMessage} Les dernières données chargées restent affichées.
           </p>
         )}
+        {followStorageError && (
+          <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+            {followStorageError}
+          </p>
+        )}
 
-        <PublicLiveModule tournament={tournament} participantsPanel={participantsPanel} />
+        <PublicLiveModule
+          tournament={tournament}
+          participantsPanel={participantsPanel}
+          followedPairIds={followedPairIds}
+          qrUrl={buildTvShareUrl(token)}
+          initialTvMode={new URLSearchParams(window.location.search).get('tv') === '1'}
+        />
 
         <footer className="flex items-center justify-center gap-1.5 pb-2 text-[11px] text-slate-400">
           <RefreshCw className="h-3 w-3" />
