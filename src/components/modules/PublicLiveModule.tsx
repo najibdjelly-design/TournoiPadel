@@ -161,6 +161,8 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   const [isTvMode, setIsTvMode] = useState(initialTvMode);
   const [tvIndex, setTvIndex] = useState(0);
   const tvScrollRef = React.useRef(0);
+  const tvBracketScrollRef = React.useRef(0);
+  const bracketScrollerRef = React.useRef<HTMLDivElement | null>(null);
 
   // Pair history modal
   const [selectedPairHistory, setSelectedPairHistory] = useState<Pair | null>(null);
@@ -251,6 +253,31 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   }, [activeBracketMatches]);
 
   const sortedRoundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
+
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Give every match card of a view the height of the tallest one
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const equalize = () => {
+      const groups = new Map<string, HTMLElement[]>();
+      root.querySelectorAll<HTMLElement>('[data-uniform-card]').forEach(card => {
+        card.style.minHeight = '';
+        const key = card.dataset.uniformCard ?? '';
+        groups.set(key, [...(groups.get(key) ?? []), card]);
+      });
+      groups.forEach(cards => {
+        const tallest = Math.max(...cards.map(card => card.offsetHeight));
+        cards.forEach(card => {
+          card.style.minHeight = `${tallest}px`;
+        });
+      });
+    };
+    equalize();
+    window.addEventListener('resize', equalize);
+    return () => window.removeEventListener('resize', equalize);
+  }, [allMatches, tournament.pairs, tournament.courts, timeSlots, activeTab, bracketSubTab, scheduleViewMode, isTvMode, classificationFocusMatchIds]);
 
   const bracketContainerRef = React.useRef<HTMLDivElement | null>(null);
   const matchCardRefs = React.useRef(new Map<string, HTMLDivElement>());
@@ -369,6 +396,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     setActiveTab(view.tab);
     if (view.sub) setBracketSubTab(view.sub);
     tvScrollRef.current = 0;
+    tvBracketScrollRef.current = 0;
     window.scrollTo(0, 0);
   }, [isTvMode, tvIndex, tvViews]);
 
@@ -382,9 +410,18 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     const tick = (now: number) => {
       const root = document.scrollingElement ?? document.documentElement;
       const max = root.scrollHeight - root.clientHeight;
-      if (max > 4 && tvScrollRef.current < max && waitingSince === null) {
-        tvScrollRef.current = Math.min(max, tvScrollRef.current + (now - last) * 0.03);
-        root.scrollTop = tvScrollRef.current;
+      const scroller = bracketScrollerRef.current;
+      const maxX = scroller ? scroller.scrollWidth - scroller.clientWidth : 0;
+      const horizontalPending = maxX > 4 && tvBracketScrollRef.current < maxX;
+      const verticalPending = max > 4 && tvScrollRef.current < max;
+      if ((horizontalPending || verticalPending) && waitingSince === null) {
+        if (horizontalPending && scroller) {
+          tvBracketScrollRef.current = Math.min(maxX, tvBracketScrollRef.current + (now - last) * 0.05);
+          scroller.scrollLeft = tvBracketScrollRef.current;
+        } else {
+          tvScrollRef.current = Math.min(max, tvScrollRef.current + (now - last) * 0.03);
+          root.scrollTop = tvScrollRef.current;
+        }
       } else if (waitingSince === null) {
         waitingSince = now;
       } else if (now - waitingSince > TV_VIEW_SECONDS * 1000) {
@@ -448,7 +485,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     : null;
 
   return (
-    <div className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode pb-56' : ''}`}>
+    <div ref={rootRef} className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode pb-56' : ''}`}>
       {/* Public Header Banner */}
       <div className="p-4 sm:p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs">
         <div className="min-w-0">
@@ -920,6 +957,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                             >
                               {match ? (
                                 <div
+                                  data-uniform-card="schedule"
                                   className={`p-2.5 rounded-xl border text-xs space-y-1.5 transition-all ${
                                     isLive
                                       ? 'bg-emerald-50 border-emerald-300 shadow-xs ring-1 ring-emerald-300/60'
@@ -984,7 +1022,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                   {!match.score && <DurationBadge match={match} />}
                                 </div>
                               ) : (
-                                <div className="p-3 rounded-lg border border-dashed border-slate-200 text-center text-[11px] text-slate-400 italic">
+                                <div data-uniform-card="schedule" className="p-3 rounded-lg border border-dashed border-slate-200 text-center text-[11px] text-slate-400 italic flex items-center justify-center">
                                   Piste libre
                                 </div>
                               )}
@@ -1281,13 +1319,13 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                 </div>
               )}
 
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 overflow-x-auto touch-pan-x shadow-xs">
+              <div ref={bracketScrollerRef} className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 overflow-x-auto touch-pan-x shadow-xs">
             {activeBracketMatches.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs font-medium">
                 Aucun match dans ce tableau pour le moment.
               </div>
             ) : (
-              <div ref={bracketContainerRef} className="relative flex items-stretch gap-10 min-w-[700px]">
+              <div ref={bracketContainerRef} className={`relative flex items-stretch ${isTvMode ? 'gap-8' : 'gap-10'} min-w-[700px]`}>
                 <svg
                   className="pointer-events-none absolute inset-0 z-0"
                   width={connectorSize.width}
@@ -1313,7 +1351,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                   );
 
                   return (
-                    <div key={roundNum} className="flex-1 min-w-[220px] flex flex-col space-y-3">
+                    <div key={roundNum} className={`flex-1 flex flex-col space-y-3 ${isTvMode ? 'min-w-[300px]' : 'min-w-[220px]'}`}>
                       <div className="text-center pb-2 border-b border-slate-100">
                         {bracketSubTab === 'main' && consolanteMatches.length > 0 ? (
                           <button
@@ -1354,6 +1392,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                 if (element) matchCardRefs.current.set(m.id, element);
                                 else matchCardRefs.current.delete(m.id);
                               }}
+                              data-uniform-card="bracket"
                               className="relative z-10 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2 hover:border-slate-300 transition-colors shadow-xs"
                             >
                               <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
