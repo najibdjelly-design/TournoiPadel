@@ -119,7 +119,11 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
     let p1Wins = 0;
     let p2Wins = 0;
     sets.forEach(s => {
-      if (s.pair1 > s.pair2) p1Wins++;
+      // A set level on games is decided by its tie-break points
+      if (s.pair1 === s.pair2 && s.hasTieBreak) {
+        if (s.tbPair1 > s.tbPair2) p1Wins++;
+        else if (s.tbPair2 > s.tbPair1) p2Wins++;
+      } else if (s.pair1 > s.pair2) p1Wins++;
       else if (s.pair2 > s.pair1) p2Wins++;
     });
 
