@@ -17,6 +17,7 @@ import { InscriptionsModule } from './components/modules/InscriptionsModule';
 import { PoulesModule } from './components/modules/PoulesModule';
 import { TableauModule } from './components/modules/TableauModule';
 import { ProgrammeModule } from './components/modules/ProgrammeModule';
+import { MatchsModule } from './components/modules/MatchsModule';
 import { ConvocationsModule } from './components/modules/ConvocationsModule';
 import { CaisseModule } from './components/modules/CaisseModule';
 import { PublicLiveModule } from './components/modules/PublicLiveModule';
@@ -572,6 +573,12 @@ export default function App() {
                 />
               ) : currentModule === 'programme' ? (
                 <ProgrammeModule
+                  tournament={activeTournament}
+                  onUpdateTournament={handleUpdateTournament}
+                  onOpenScoreModal={handleOpenScoreModal}
+                />
+              ) : currentModule === 'matchs' ? (
+                <MatchsModule
                   tournament={activeTournament}
                   onUpdateTournament={handleUpdateTournament}
                   onOpenScoreModal={handleOpenScoreModal}

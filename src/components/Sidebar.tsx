@@ -11,6 +11,7 @@ import {
   Tv,
   X,
   Layers,
+  Play,
 } from 'lucide-react';
 
 export type NavigationModule =
@@ -19,6 +20,7 @@ export type NavigationModule =
   | 'poules'
   | 'tableau'
   | 'programme'
+  | 'matchs'
   | 'convocations'
   | 'caisse'
   | 'public';
@@ -46,6 +48,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const scheduledMatchesCount =
     (tournament?.pools.flatMap(p => p.matches).length || 0) +
     (tournament?.bracketMatches.length || 0);
+  const liveMatchesCount = tournament
+    ? [
+        ...tournament.pools.flatMap(p => p.matches),
+        ...tournament.bracketMatches,
+        ...tournament.consolanteMatches,
+      ].filter(m => m.status === 'in_progress').length
+    : 0;
   const pendingConvocationsCount =
     tournament?.convocations.filter(c => c.status === 'ready').length || 0;
   const unpaidPlayersCount =
@@ -88,6 +97,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Programme & Terrains',
       icon: CalendarDays,
       count: scheduledMatchesCount > 0 ? `${scheduledMatchesCount} m.` : undefined,
+    },
+    {
+      id: 'matchs',
+      label: 'Matchs (lancer & scores)',
+      icon: Play,
+      count: liveMatchesCount > 0 ? `${liveMatchesCount} live` : undefined,
+      alert: liveMatchesCount > 0,
     },
     {
       id: 'convocations',

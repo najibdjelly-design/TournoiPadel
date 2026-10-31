@@ -6,6 +6,7 @@ import {
   Grid3X3,
   GitBranch,
   CalendarDays,
+  Play,
   Menu,
 } from 'lucide-react';
 
@@ -62,6 +63,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       label: 'Terrains',
       icon: CalendarDays,
       count: scheduledMatchesCount,
+    },
+    {
+      id: 'matchs',
+      label: 'Matchs',
+      icon: Play,
     },
   ];
 
