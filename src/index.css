@@ -57,3 +57,21 @@
 .tv-mode .tv-schedule-table th:first-child {
   width: 5.5rem;
 }
+
+/* TV: use the whole screen width instead of the centered max-width column */
+.tv-mode.tv-fullbleed {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+html:has(.tv-mode) {
+  scrollbar-width: none;
+  overflow-x: hidden;
+}
+
+html:has(.tv-mode)::-webkit-scrollbar {
+  display: none;
+}

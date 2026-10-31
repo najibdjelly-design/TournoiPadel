@@ -305,8 +305,8 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       const paddingY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
       const availableWidth = scroller.clientWidth - paddingX;
       const top = scroller.getBoundingClientRect().top + window.scrollY;
-      const availableHeight = window.innerHeight - top - paddingY - 190;
-      const scale = Math.max(0.3, Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight));
+      const availableHeight = window.innerHeight - top - paddingY - 150;
+      const scale = Math.max(0.3, Math.min(1.6, availableWidth / naturalWidth, availableHeight / naturalHeight));
       const next = {
         scale,
         width: naturalWidth * scale,
@@ -415,6 +415,22 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     setActiveTab('bracket');
     window.scrollTo(0, 0);
   };
+
+  const tvScreenTitle =
+    activeTab === 'bracket'
+      ? bracketSubTab === 'consolante'
+        ? 'Matchs de classement'
+        : bracketSubTab === 'standings'
+          ? 'Classement général'
+          : 'Tableau principal'
+      : ({
+          courts: 'Sur les terrains',
+          schedule: 'Programmation des matchs',
+          pools: 'Poules & classements',
+          participants: 'Participants',
+          stats: 'Statistiques',
+          'my-matches': 'Mes matchs',
+        } as Record<string, string>)[activeTab] ?? '';
 
   // Sequence of screens cycled in TV mode: only the pages chosen by the referee that have content
   const tvViews = useMemo<Array<{ tab: LiveTab; sub?: BracketSubTab }>>(() => {
@@ -538,9 +554,9 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     : null;
 
   return (
-    <div ref={rootRef} className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode pb-56' : ''}`}>
+    <div ref={rootRef} className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode tv-fullbleed !space-y-3 !pb-44' : ''}`}>
       {/* Public Header Banner */}
-      <div className="p-4 sm:p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs">
+      <div className={`bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs ${isTvMode ? 'px-4 py-2 ml-28 mr-44' : 'p-4 sm:p-6'}`}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 mb-1">
             <span className="font-mono text-emerald-700 font-bold">LIVE SCORE & TOURNOI</span>
@@ -567,15 +583,20 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {isTvMode && (
+            <span className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-extrabold uppercase tracking-wide text-white">
+              {tvScreenTitle}
+            </span>
+          )}
           {/* Multi-screen live indicator */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-mono font-medium shadow-xs">
+          <div className={`items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-mono font-medium shadow-xs ${isTvMode ? 'hidden' : 'flex'}`}>
             <Radio className="w-3.5 h-3.5 animate-pulse text-emerald-600" />
             <span>Mise à jour instantanée</span>
           </div>
 
           <button
             onClick={toggleTvMode}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors font-medium shadow-xs border ${
+            className={`items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors font-medium shadow-xs border ${isTvMode ? 'hidden' : 'flex'} ${
               isTvMode
                 ? 'bg-emerald-600 text-white border-emerald-700'
                 : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border-slate-300'
@@ -588,7 +609,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
           <button
             onClick={toggleFullscreen}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors font-medium shadow-xs"
+            className={`items-center gap-1.5 px-3 py-1.5 text-xs text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors font-medium shadow-xs ${isTvMode ? 'hidden' : 'flex'}`}
             title="Activer le mode plein écran"
           >
             <Maximize2 className="w-3.5 h-3.5" />
@@ -701,7 +722,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       )}
 
       {/* Navigation tabs for spectator */}
-      <div className="hidden md:flex items-center gap-1 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium max-w-full overflow-x-auto whitespace-nowrap">
+      <div className={`${isTvMode ? 'hidden' : 'hidden md:flex'} items-center gap-1 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium max-w-full overflow-x-auto whitespace-nowrap`}>
         {participantsPanel && (
           <button
             onClick={() => setActiveTab('participants')}
@@ -792,7 +813,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       </div>
 
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 flex items-stretch gap-1 overflow-x-auto border-t border-slate-200 bg-white/95 px-1 py-1 shadow-lg backdrop-blur-md md:hidden"
+        className={`fixed bottom-0 left-0 right-0 z-40 items-stretch gap-1 overflow-x-auto border-t border-slate-200 bg-white/95 px-1 py-1 shadow-lg backdrop-blur-md md:hidden ${isTvMode ? 'hidden' : 'flex'}`}
         aria-label="Navigation de la vue joueurs"
       >
         {[
@@ -1262,7 +1283,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       {activeTab === 'bracket' && (
         <div className="space-y-4">
           {/* Sub-tabs: Tableau Principal vs Tableau Consolante */}
-          <div className="flex items-center gap-2 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs max-w-full overflow-x-auto whitespace-nowrap">
+          <div className={`${isTvMode ? 'hidden' : 'flex'} items-center gap-2 p-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs max-w-full overflow-x-auto whitespace-nowrap`}>
             <button
               type="button"
               onClick={() => {
@@ -1395,7 +1416,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           ) : (
             <>
               {/* Mobile Swipe Hint */}
-              {activeBracketMatches.length > 0 && (
+              {activeBracketMatches.length > 0 && !isTvMode && (
                 <div className="md:hidden flex items-center justify-between px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[11px] text-slate-600">
                   <span>👈 Glissez horizontalement pour naviguer entre les tours 👉</span>
                 </div>
@@ -1403,8 +1424,8 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
               <div
                 ref={bracketScrollerRef}
-                className={`bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 touch-pan-x shadow-xs ${isTvMode ? 'overflow-hidden' : 'overflow-x-auto'}`}
-                style={isTvMode && tvFit.height ? { height: tvFit.height + 48 } : undefined}
+                className={`bg-white border border-slate-200 rounded-2xl touch-pan-x shadow-xs ${isTvMode ? 'overflow-hidden p-3' : 'p-4 sm:p-6 overflow-x-auto'}`}
+                style={isTvMode && tvFit.height ? { height: tvFit.height + 24 } : undefined}
               >
             {activeBracketMatches.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs font-medium">
