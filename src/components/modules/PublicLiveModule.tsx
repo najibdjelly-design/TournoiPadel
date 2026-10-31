@@ -929,7 +929,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-1 text-[10px]">
-                                    <span className="font-semibold text-slate-500 truncate">
+                                    <span className={`font-semibold text-slate-500 ${isTvMode ? 'break-words' : 'truncate'}`}>
                                       {match.roundName}
                                     </span>
                                     <FormatBadge format={match.matchFormat} />
@@ -946,7 +946,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                   <div className="font-semibold space-y-0.5">
                                     <p
                                       onClick={() => p1 && setSelectedPairHistory(p1)}
-                                      className={`truncate ${
+                                      className={`${isTvMode ? 'break-words' : 'truncate'} ${
                                         match.winnerPairId === match.pair1Id
                                           ? 'text-slate-900 font-bold'
                                           : 'text-slate-700'
@@ -959,7 +959,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                     </p>
                                     <p
                                       onClick={() => p2 && setSelectedPairHistory(p2)}
-                                      className={`truncate ${
+                                      className={`${isTvMode ? 'break-words' : 'truncate'} ${
                                         match.winnerPairId === match.pair2Id
                                           ? 'text-slate-900 font-bold'
                                           : 'text-slate-500'
