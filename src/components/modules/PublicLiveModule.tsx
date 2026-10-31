@@ -288,6 +288,50 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     { key: string; d: string; loser: boolean }[]
   >([]);
   const [connectorSize, setConnectorSize] = useState({ width: 0, height: 0 });
+  const [tvFit, setTvFit] = useState({ scale: 1, width: 0, height: 0, offsetX: 0 });
+
+  // TV mode: scale the whole bracket so it fits the screen without scrolling
+  useLayoutEffect(() => {
+    const container = bracketContainerRef.current;
+    const scroller = bracketScrollerRef.current;
+    if (!isTvMode || !container || !scroller || activeTab !== 'bracket' || bracketSubTab === 'standings') {
+      setTvFit(previous => (previous.scale === 1 && previous.width === 0 ? previous : { scale: 1, width: 0, offsetX: 0, height: 0 }));
+      return;
+    }
+    const fit = () => {
+      const naturalWidth = container.offsetWidth;
+      const naturalHeight = container.offsetHeight;
+      if (!naturalWidth || !naturalHeight) return;
+      const style = window.getComputedStyle(scroller);
+      const paddingX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      const paddingY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      const availableWidth = scroller.clientWidth - paddingX;
+      const top = scroller.getBoundingClientRect().top + window.scrollY;
+      const availableHeight = window.innerHeight - top - paddingY - 190;
+      const scale = Math.max(0.3, Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight));
+      const next = {
+        scale,
+        width: naturalWidth * scale,
+        height: naturalHeight * scale,
+        offsetX: Math.max(0, (availableWidth - naturalWidth * scale) / 2),
+      };
+      setTvFit(previous =>
+        Math.abs(previous.scale - next.scale) < 0.005 &&
+        Math.abs(previous.height - next.height) < 1 &&
+        Math.abs(previous.offsetX - next.offsetX) < 1
+          ? previous
+          : next
+      );
+    };
+    fit();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : undefined;
+    observer?.observe(container);
+    window.addEventListener('resize', fit);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', fit);
+    };
+  }, [isTvMode, activeTab, bracketSubTab, activeBracketMatches]);
 
   useLayoutEffect(() => {
     const container = bracketContainerRef.current;
@@ -297,6 +341,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     }
     const compute = () => {
       const origin = container.getBoundingClientRect();
+      const zoom = container.offsetWidth ? origin.width / container.offsetWidth : 1;
       const visibleIds = new Set(activeBracketMatches.map(match => match.id));
       const paths: { key: string; d: string; loser: boolean }[] = [];
       const link = (source: Match, targetId: string | undefined, loser: boolean) => {
@@ -306,10 +351,10 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
         if (!from || !to) return;
         const a = from.getBoundingClientRect();
         const b = to.getBoundingClientRect();
-        const x1 = a.right - origin.left;
-        const y1 = a.top + a.height / 2 - origin.top;
-        const x2 = b.left - origin.left;
-        const y2 = b.top + b.height / 2 - origin.top;
+        const x1 = (a.right - origin.left) / zoom;
+        const y1 = (a.top + a.height / 2 - origin.top) / zoom;
+        const x2 = (b.left - origin.left) / zoom;
+        const y2 = (b.top + b.height / 2 - origin.top) / zoom;
         if (x2 <= x1) return;
         const mid = x1 + (x2 - x1) / 2;
         paths.push({
@@ -338,7 +383,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       observer?.disconnect();
       window.removeEventListener('resize', compute);
     };
-  }, [activeBracketMatches, activeTab, bracketSubTab]);
+  }, [activeBracketMatches, activeTab, bracketSubTab, tvFit.scale]);
 
   const openRoundClassification = (round: number) => {
     const sourceMatches = mainBracketMatches.filter(match => (match.bracketRound ?? 1) === round);
@@ -1377,13 +1422,25 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                 </div>
               )}
 
-              <div ref={bracketScrollerRef} className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 overflow-x-auto touch-pan-x shadow-xs">
+              <div
+                ref={bracketScrollerRef}
+                className={`bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 touch-pan-x shadow-xs ${isTvMode ? 'overflow-hidden' : 'overflow-x-auto'}`}
+                style={isTvMode && tvFit.height ? { height: tvFit.height + 48 } : undefined}
+              >
             {activeBracketMatches.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs font-medium">
                 Aucun match dans ce tableau pour le moment.
               </div>
             ) : (
-              <div ref={bracketContainerRef} className={`relative flex items-stretch ${isTvMode ? 'gap-8' : 'gap-10'} min-w-[700px]`}>
+              <div
+                ref={bracketContainerRef}
+                className={`relative flex items-stretch ${isTvMode ? 'gap-8 w-max' : 'gap-10 min-w-[700px]'}`}
+                style={
+                  isTvMode
+                    ? { transform: `scale(${tvFit.scale})`, transformOrigin: 'top left', marginLeft: tvFit.offsetX }
+                    : undefined
+                }
+              >
                 <svg
                   className="pointer-events-none absolute inset-0 z-0"
                   width={connectorSize.width}
