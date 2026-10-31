@@ -164,6 +164,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   const [tvIndex, setTvIndex] = useState(0);
   const tvScrollRef = React.useRef(0);
   const tvBracketScrollRef = React.useRef(0);
+  const tvBracketPhaseRef = React.useRef(0);
   const bracketScrollerRef = React.useRef<HTMLDivElement | null>(null);
 
   // Pair history modal
@@ -399,6 +400,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     if (view.sub) setBracketSubTab(view.sub);
     tvScrollRef.current = 0;
     tvBracketScrollRef.current = 0;
+    tvBracketPhaseRef.current = 0;
     window.scrollTo(0, 0);
   }, [isTvMode, tvIndex, tvViews]);
 
@@ -413,17 +415,56 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       const root = document.scrollingElement ?? document.documentElement;
       const max = root.scrollHeight - root.clientHeight;
       const scroller = bracketScrollerRef.current;
-      const maxX = scroller ? scroller.scrollWidth - scroller.clientWidth : 0;
-      const horizontalPending = maxX > 4 && tvBracketScrollRef.current < maxX;
-      const verticalPending = max > 4 && tvScrollRef.current < max;
-      if ((horizontalPending || verticalPending) && waitingSince === null) {
-        if (horizontalPending && scroller) {
-          tvBracketScrollRef.current = Math.min(maxX, tvBracketScrollRef.current + (now - last) * 0.05);
-          scroller.scrollLeft = tvBracketScrollRef.current;
-        } else {
-          tvScrollRef.current = Math.min(max, tvScrollRef.current + (now - last) * 0.03);
-          root.scrollTop = tvScrollRef.current;
+      const dt = now - last;
+
+      if (scroller) {
+        // Bracket: sweep the top half left to right, go down to the bottom of the bracket, sweep left to right again
+        const maxX = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+        const bottomTarget = Math.min(
+          max,
+          Math.max(0, scroller.getBoundingClientRect().bottom + root.scrollTop - root.clientHeight + 16)
+        );
+        const phase = tvBracketPhaseRef.current;
+        if (waitingSince === null) {
+          if (phase === 0) {
+            if (maxX > 4 && tvBracketScrollRef.current < maxX) {
+              tvBracketScrollRef.current = Math.min(maxX, tvBracketScrollRef.current + dt * 0.05);
+              scroller.scrollLeft = tvBracketScrollRef.current;
+            } else {
+              tvBracketPhaseRef.current = bottomTarget > 4 ? 1 : 3;
+            }
+          } else if (phase === 1) {
+            if (tvScrollRef.current < bottomTarget) {
+              tvScrollRef.current = Math.min(bottomTarget, tvScrollRef.current + dt * 0.03);
+              root.scrollTop = tvScrollRef.current;
+            } else {
+              tvBracketScrollRef.current = 0;
+              scroller.scrollLeft = 0;
+              tvBracketPhaseRef.current = maxX > 4 ? 2 : 3;
+            }
+          } else if (phase === 2) {
+            if (tvBracketScrollRef.current < maxX) {
+              tvBracketScrollRef.current = Math.min(maxX, tvBracketScrollRef.current + dt * 0.05);
+              scroller.scrollLeft = tvBracketScrollRef.current;
+            } else {
+              tvBracketPhaseRef.current = 3;
+            }
+          } else {
+            waitingSince = now;
+          }
+        } else if (now - waitingSince > TV_VIEW_SECONDS * 1000) {
+          setTvIndex(index => (index + 1) % tvViews.length);
+          return;
         }
+        last = now;
+        frame = requestAnimationFrame(tick);
+        return;
+      }
+
+      const verticalPending = max > 4 && tvScrollRef.current < max;
+      if (verticalPending && waitingSince === null) {
+        tvScrollRef.current = Math.min(max, tvScrollRef.current + dt * 0.03);
+        root.scrollTop = tvScrollRef.current;
       } else if (waitingSince === null) {
         waitingSince = now;
       } else if (now - waitingSince > TV_VIEW_SECONDS * 1000) {

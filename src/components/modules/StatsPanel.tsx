@@ -89,14 +89,9 @@ export const StatsPanel: React.FC<{ tournament: Tournament }> = ({ tournament })
 
     // Pair and player aggregates
     const pairStats = new Map<string, { played: number; won: number; lost: number; gw: number; gl: number; streak: number; best: number }>();
-    const playerStats = new Map<string, { name: string; played: number; won: number; gw: number; gl: number }>();
     const entry = (id: string) => {
       if (!pairStats.has(id)) pairStats.set(id, { played: 0, won: 0, lost: 0, gw: 0, gl: 0, streak: 0, best: 0 });
       return pairStats.get(id)!;
-    };
-    const playerEntry = (id: string, name: string) => {
-      if (!playerStats.has(id)) playerStats.set(id, { name, played: 0, won: 0, gw: 0, gl: 0 });
-      return playerStats.get(id)!;
     };
 
     for (const match of ordered) {
@@ -120,25 +115,13 @@ export const StatsPanel: React.FC<{ tournament: Tournament }> = ({ tournament })
           item.lost += 1;
           item.streak = 0;
         }
-        const pair = pairsMap.get(pairId);
-        if (pair) {
-          for (const player of [pair.player1, pair.player2]) {
-            const p = playerEntry(player.id, `${player.firstName} ${player.lastName}`);
-            p.played += 1;
-            p.gw += gw;
-            p.gl += gl;
-            if (winner === pairId) p.won += 1;
-          }
-        }
       }
     }
 
     const ranking = [...pairStats.entries()]
       .map(([pairId, s]) => ({ pairId, ...s, diff: s.gw - s.gl }))
       .sort((a, b) => b.won - a.won || b.diff - a.diff || b.gw - a.gw);
-    const players = [...playerStats.values()]
-      .sort((a, b) => b.won - a.won || b.gw - a.gw || a.played - b.played)
-      .slice(0, 10);
+    const topPairs = ranking.slice(0, 10);
 
     // Records
     const records: Record[] = [];
@@ -218,7 +201,7 @@ export const StatsPanel: React.FC<{ tournament: Tournament }> = ({ tournament })
       records,
       bestStreak: bestStreak && bestStreak[1].best >= 2 ? bestStreak : undefined,
       ranking,
-      players,
+      topPairs,
       rematches,
       courts,
       globalDelay: allDelays.length ? allDelays.reduce((a, b) => a + b, 0) / allDelays.length : undefined,
@@ -297,15 +280,17 @@ export const StatsPanel: React.FC<{ tournament: Tournament }> = ({ tournament })
           )}
         </Card>
 
-        <Card icon={<Medal className="h-4 w-4 text-amber-500" />} title="Top joueurs">
-          {stats.players.length ? (
+        <Card icon={<Medal className="h-4 w-4 text-amber-500" />} title="Top paires">
+          {stats.topPairs.length ? (
             <ol className="space-y-1.5 text-xs">
-              {stats.players.map((player, index) => (
-                <li key={player.name} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
+              {stats.topPairs.map((row, index) => (
+                <li key={row.pairId} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
                   <span className="w-5 shrink-0 font-extrabold text-slate-400">{index + 1}</span>
-                  <span className="min-w-0 flex-1 break-words font-semibold text-slate-900">{player.name}</span>
+                  <span className="min-w-0 flex-1 break-words font-semibold text-slate-900">
+                    {pairName(pairsMap.get(row.pairId))}
+                  </span>
                   <span className="shrink-0 text-slate-600">
-                    {player.won}V / {player.played - player.won}D · {player.gw} jeux
+                    {row.won}V / {row.lost}D · {row.gw} jeux
                   </span>
                 </li>
               ))}
