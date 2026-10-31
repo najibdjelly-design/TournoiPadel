@@ -38,7 +38,8 @@ import {
   resolveMatchOutcomePlaceholder,
 } from '../../utils/padelSchedule';
 import { PADEL_MATCH_FORMATS, getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
-import { buildFftCascadeTournament, drawFftBracketRanks, isFftCascadeSupported, shuffleItems } from '../../utils/fftDraw';
+import { buildFftCascadeTournament, drawFftBracketRanks, FFT_CASCADE_MAX_ENTRANTS, isFftCascadeSupported, shuffleItems } from '../../utils/fftDraw';
+import { buildFftBracketTournament } from '../../utils/fftBracket';
 
 const CUSTOM_CLASSIFICATION_COHORT_SIZES = [2, 4, 8, 16, 24, 32] as const;
 
@@ -577,9 +578,13 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       .sort((a, b) => a.totalWeight - b.totalWeight)
       .slice(0, configuredEntrants);
     const cascadeDraw =
-      size === 24 && isFftCascadeSupported(configuredEntrants)
-        ? buildFftCascadeTournament(tournament.id, sortedPairs)
-        : undefined;
+      size === 24
+        ? isFftCascadeSupported(configuredEntrants)
+          ? buildFftCascadeTournament(tournament.id, sortedPairs)
+          : configuredEntrants > FFT_CASCADE_MAX_ENTRANTS
+            ? buildFftBracketTournament(tournament.id, sortedPairs, 32)
+            : undefined
+        : buildFftBracketTournament(tournament.id, sortedPairs, size);
     if (cascadeDraw) {
       const cascadeSeeds = new Map(
         sortedPairs.map((pair, index) => [
@@ -594,7 +599,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
           if (seeded) return seeded;
           return pair.status === 'confirmed' && pair.seedRank ? { ...pair, seedRank: undefined } : pair;
         }),
-        bracketSize: size,
+        bracketSize: size === 24 && configuredEntrants > FFT_CASCADE_MAX_ENTRANTS ? 32 : size,
         bracketEntrantCount: configuredEntrants,
         bracketLabelsEditable: false,
         consolanteLabelsEditable: false,
@@ -764,7 +769,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       newConsolanteMatches = newConsolanteMatches
         .map(trimClassificationRange)
         .filter((match): match is Match => Boolean(match));
-      const remainingClassificationIds = new Set(newConsolanteMatches.map((match) => match.id));
+      const remainingClassificationIds = new Set(
+        [...newConsolanteMatches, ...newMainMatches].map((match) => match.id)
+      );
       newMainMatches = newMainMatches.map((match) =>
         match.loserNextMatchId && !remainingClassificationIds.has(match.loserNextMatchId)
           ? { ...match, loserNextMatchId: undefined, loserNextMatchSlot: undefined }

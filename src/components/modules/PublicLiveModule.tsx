@@ -163,8 +163,6 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   const [isTvMode, setIsTvMode] = useState(initialTvMode);
   const [tvIndex, setTvIndex] = useState(0);
   const tvScrollRef = React.useRef(0);
-  const tvBracketScrollRef = React.useRef(0);
-  const tvBracketPhaseRef = React.useRef(0);
   const bracketScrollerRef = React.useRef<HTMLDivElement | null>(null);
 
   // Pair history modal
@@ -444,8 +442,6 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     setActiveTab(view.tab);
     if (view.sub) setBracketSubTab(view.sub);
     tvScrollRef.current = 0;
-    tvBracketScrollRef.current = 0;
-    tvBracketPhaseRef.current = 0;
     window.scrollTo(0, 0);
   }, [isTvMode, tvIndex, tvViews]);
 
@@ -463,40 +459,9 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
       const dt = now - last;
 
       if (scroller) {
-        // Bracket: sweep the top half left to right, go down to the bottom of the bracket, sweep left to right again
-        const maxX = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-        const bottomTarget = Math.min(
-          max,
-          Math.max(0, scroller.getBoundingClientRect().bottom + root.scrollTop - root.clientHeight + 16)
-        );
-        const phase = tvBracketPhaseRef.current;
+        // Bracket is scaled to fit the screen in TV mode: no scrolling, just wait before the next screen
         if (waitingSince === null) {
-          if (phase === 0) {
-            if (maxX > 4 && tvBracketScrollRef.current < maxX) {
-              tvBracketScrollRef.current = Math.min(maxX, tvBracketScrollRef.current + dt * 0.05);
-              scroller.scrollLeft = tvBracketScrollRef.current;
-            } else {
-              tvBracketPhaseRef.current = bottomTarget > 4 ? 1 : 3;
-            }
-          } else if (phase === 1) {
-            if (tvScrollRef.current < bottomTarget) {
-              tvScrollRef.current = Math.min(bottomTarget, tvScrollRef.current + dt * 0.03);
-              root.scrollTop = tvScrollRef.current;
-            } else {
-              tvBracketScrollRef.current = 0;
-              scroller.scrollLeft = 0;
-              tvBracketPhaseRef.current = maxX > 4 ? 2 : 3;
-            }
-          } else if (phase === 2) {
-            if (tvBracketScrollRef.current < maxX) {
-              tvBracketScrollRef.current = Math.min(maxX, tvBracketScrollRef.current + dt * 0.05);
-              scroller.scrollLeft = tvBracketScrollRef.current;
-            } else {
-              tvBracketPhaseRef.current = 3;
-            }
-          } else {
-            waitingSince = now;
-          }
+          waitingSince = now;
         } else if (now - waitingSince > TV_VIEW_SECONDS * 1000) {
           setTvIndex(index => (index + 1) % tvViews.length);
           return;
@@ -585,6 +550,20 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
             <span>{tournament.club}</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">{tournament.name}</h1>
+          {(tournament.refereeName || tournament.refereePhone) && (
+            <p className="mt-1 text-xs sm:text-sm text-slate-600">
+              Juge-arbitre :{' '}
+              {tournament.refereeName && <span className="font-semibold text-slate-800">{tournament.refereeName}</span>}
+              {tournament.refereePhone && (
+                <>
+                  {tournament.refereeName && ' · '}
+                  <a href={`tel:${tournament.refereePhone.replace(/\s+/g, '')}`} className="font-semibold text-emerald-700">
+                    {tournament.refereePhone}
+                  </a>
+                </>
+              )}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">

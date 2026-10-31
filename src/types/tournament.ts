@@ -163,6 +163,8 @@ export interface Tournament {
   name: string;
   club: string;
   city: string;
+  refereeName?: string; // juge-arbitre, nom et prénom
+  refereePhone?: string;
   dates: {
     start: string;
     end: string;

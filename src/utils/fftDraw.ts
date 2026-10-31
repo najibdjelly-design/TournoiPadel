@@ -49,9 +49,24 @@ export function drawFftBracketRanks(
     if (group.length < 2) continue;
     const slots = ranks.flatMap((rank, slot) => (group.includes(rank) ? [slot] : []));
     const drawn = shuffle(group, random);
-    slots.forEach((slot, index) => {
-      ranks[slot] = drawn[index];
-    });
+    // A bye goes to the best seeds of the group: bye slots take the best ranks, drawn among themselves
+    const byeSlots = slots.filter(slot => ranks[slot ^ 1] > entrantCount);
+    const playSlots = slots.filter(slot => !byeSlots.includes(slot));
+    const ordered = [...group].sort((a, b) => a - b);
+    const byeRanks = shuffle(ordered.slice(0, byeSlots.length), random);
+    const playRanks = shuffle(ordered.slice(byeSlots.length), random);
+    if (byeSlots.length === 0) {
+      slots.forEach((slot, index) => {
+        ranks[slot] = drawn[index];
+      });
+    } else {
+      byeSlots.forEach((slot, index) => {
+        ranks[slot] = byeRanks[index];
+      });
+      playSlots.forEach((slot, index) => {
+        ranks[slot] = playRanks[index];
+      });
+    }
   }
 
   const unseeded = Array.from(
@@ -82,7 +97,7 @@ export function isFftCascadeSupported(entrantCount: number): boolean {
 
 const CHAINS = 4;
 
-function roundLabel(stepsBeforeQuarter: number): string {
+export function roundLabel(stepsBeforeQuarter: number): string {
   if (stepsBeforeQuarter <= 0) return 'Quart de finale';
   return `1/${8 * 2 ** (stepsBeforeQuarter - 1)} de Finale`;
 }

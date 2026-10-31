@@ -7,6 +7,7 @@ import {
   distributePairsBySerpentine,
   distributePairsByRankTier,
 } from '../../utils/padelCalculations';
+import { findSamePoolClashes, resolvePoolQualifiers } from '../../utils/poolQualifiers';
 import {
   Grid3X3,
   Shuffle,
@@ -325,34 +326,26 @@ export const PoulesModule: React.FC<PoulesModuleProps> = ({
       return;
     }
 
-    const poolWinners: { poolName: string; winnerPairId?: string }[] = tournament.pools.map(pool => {
-      const best = pool.standings[0];
-      return {
-        poolName: pool.name,
-        winnerPairId: best?.pairId,
-      };
-    });
-
-    const updatedBracket = tournament.bracketMatches.map(match => {
-      let m = { ...match };
-      for (const pw of poolWinners) {
-        if (!pw.winnerPairId) continue;
-        if (m.pair1Placeholder?.includes(pw.poolName) && !m.pair1Id) {
-          m.pair1Id = pw.winnerPairId;
-        }
-        if (m.pair2Placeholder?.includes(pw.poolName) && !m.pair2Id) {
-          m.pair2Id = pw.winnerPairId;
-        }
-      }
-      return m;
-    });
+    const { matches: updatedBracket, filled, pendingPools } = resolvePoolQualifiers(
+      tournament.bracketMatches,
+      tournament.pools
+    );
 
     onUpdateTournament({
       ...tournament,
       bracketMatches: updatedBracket,
     });
 
-    alert('Les vainqueurs de poule qualifiés ont été intégrés dans le Tableau Final !');
+    const clashes = findSamePoolClashes(updatedBracket);
+    const clashNote = clashes.length
+      ? `\nAttention : ${clashes.length} match(s) opposent deux qualifiés de la même poule (${clashes.map(m => m.roundName).join(', ')}). Les règles FFT demandent de les éviter : modifiez les emplacements.`
+      : '';
+
+    alert(
+      (pendingPools.length
+        ? `${filled} qualifié(s) intégré(s). Poules non terminées : ${pendingPools.join(', ')}.`
+        : `${filled} qualifié(s) de poule intégré(s) dans le Tableau Final !`) + clashNote
+    );
   };
 
   const activePool = tournament.pools.find(p => p.id === selectedPoolId) || tournament.pools[0];

@@ -18,6 +18,8 @@ export const NewTournamentModal: React.FC<NewTournamentModalProps> = ({
   const [name, setName] = useState('Open P250 Padel Club');
   const [club, setClub] = useState('Tennis Padel Club');
   const [city, setCity] = useState('Lyon');
+  const [refereeName, setRefereeName] = useState('');
+  const [refereePhone, setRefereePhone] = useState('');
   const [category, setCategory] = useState<TournamentCategory>('P250');
   const [gender, setGender] = useState<TournamentGender>('H');
   const [entryFee, setEntryFee] = useState<number>(20);
@@ -39,6 +41,8 @@ export const NewTournamentModal: React.FC<NewTournamentModalProps> = ({
       name,
       club,
       city,
+      refereeName: refereeName.trim() || undefined,
+      refereePhone: refereePhone.trim() || undefined,
       dates: {
         start: new Date().toISOString().split('T')[0],
         end: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
@@ -124,6 +128,33 @@ export const NewTournamentModal: React.FC<NewTournamentModalProps> = ({
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                Juge-arbitre (nom et prénom)
+              </label>
+              <input
+                type="text"
+                value={refereeName}
+                onChange={(e) => setRefereeName(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:border-emerald-500"
+                placeholder="Ex: Dupont Marie"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                Téléphone du juge-arbitre
+              </label>
+              <input
+                type="tel"
+                value={refereePhone}
+                onChange={(e) => setRefereePhone(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:border-emerald-500"
+                placeholder="06 12 34 56 78"
               />
             </div>
           </div>

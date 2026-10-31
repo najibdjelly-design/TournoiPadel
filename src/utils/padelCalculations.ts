@@ -113,16 +113,47 @@ export function computePoolStandings(pool: Pool, pairsMap: Map<string, Pair>): P
     item.gameDiff = item.gamesWon - item.gamesLost;
   }
 
-  // Sort by: Points desc -> Set diff desc -> Game diff desc
-  const list = Array.from(stats.values()).sort((a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    if (b.setDiff !== a.setDiff) return b.setDiff - a.setDiff;
-    if (b.gameDiff !== a.gameDiff) return b.gameDiff - a.gameDiff;
-    // Fallback: weight
-    const weightA = pairsMap.get(a.pairId)?.totalWeight ?? 99999;
-    const weightB = pairsMap.get(b.pairId)?.totalWeight ?? 99999;
-    return weightA - weightB;
-  });
+  // Sort by points, then ties are broken on the matches between the tied pairs (FFT head-to-head),
+  // then global set diff -> game diff -> weight
+  const byPoints = Array.from(stats.values()).sort((a, b) => b.points - a.points);
+  const list: PoolStanding[] = [];
+  for (let start = 0; start < byPoints.length; ) {
+    let end = start + 1;
+    while (end < byPoints.length && byPoints[end].points === byPoints[start].points) end++;
+    const group = byPoints.slice(start, end);
+    if (group.length > 1) {
+      const ids = new Set(group.map(item => item.pairId));
+      const mini = new Map(group.map(item => [item.pairId, { wins: 0, sets: 0, games: 0 }]));
+      for (const match of pool.matches) {
+        if (match.status !== 'completed' || !match.score || !match.pair1Id || !match.pair2Id) continue;
+        if (!ids.has(match.pair1Id) || !ids.has(match.pair2Id)) continue;
+        const m1 = mini.get(match.pair1Id)!;
+        const m2 = mini.get(match.pair2Id)!;
+        for (const set of match.score.sets) {
+          m1.games += set.pair1 - set.pair2;
+          m2.games += set.pair2 - set.pair1;
+          if (set.pair1 > set.pair2) { m1.sets += 1; m2.sets -= 1; }
+          else if (set.pair2 > set.pair1) { m2.sets += 1; m1.sets -= 1; }
+        }
+        if (match.winnerPairId === match.pair1Id) m1.wins += 1;
+        else if (match.winnerPairId === match.pair2Id) m2.wins += 1;
+      }
+      group.sort((a, b) => {
+        const ma = mini.get(a.pairId)!;
+        const mb = mini.get(b.pairId)!;
+        if (mb.wins !== ma.wins) return mb.wins - ma.wins;
+        if (mb.sets !== ma.sets) return mb.sets - ma.sets;
+        if (mb.games !== ma.games) return mb.games - ma.games;
+        if (b.setDiff !== a.setDiff) return b.setDiff - a.setDiff;
+        if (b.gameDiff !== a.gameDiff) return b.gameDiff - a.gameDiff;
+        const weightA = pairsMap.get(a.pairId)?.totalWeight ?? 99999;
+        const weightB = pairsMap.get(b.pairId)?.totalWeight ?? 99999;
+        return weightA - weightB;
+      });
+    }
+    list.push(...group);
+    start = end;
+  }
 
   // Assign ranks
   return list.map((item, idx) => ({
