@@ -38,6 +38,7 @@ import {
   resolveMatchOutcomePlaceholder,
 } from '../../utils/padelSchedule';
 import { PADEL_MATCH_FORMATS, getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
+import { drawFftBracketRanks, shuffleItems } from '../../utils/fftDraw';
 
 const CUSTOM_CLASSIFICATION_COHORT_SIZES = [2, 4, 8, 16, 24, 32] as const;
 
@@ -575,8 +576,17 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     const sortedPairs = [...confirmed]
       .sort((a, b) => a.totalWeight - b.totalWeight)
       .slice(0, configuredEntrants);
-    const seedCount =
-      size === 24 && configuredEntrants > 16
+    const useFftDraw =
+      tournament.bracketDrawMode === 'fft' && !(size === 24 && configuredEntrants === 16);
+    const fftDirectDraw =
+      useFftDraw && size === 24 ? drawFftBracketRanks(8, Math.min(8, configuredEntrants), Math.random, 8) : undefined;
+    const fftGeneralDraw =
+      useFftDraw && size !== 24 ? drawFftBracketRanks(size, configuredEntrants) : undefined;
+    const seedCount = fftGeneralDraw
+      ? fftGeneralDraw.seedCount
+      : fftDirectDraw
+      ? Math.min(8, configuredEntrants)
+      : size === 24 && configuredEntrants > 16
         ? 8
         : Math.min(
             Math.floor(configuredEntrants / 2),
@@ -665,13 +675,19 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       });
     } else if (size === 24) {
       const directEntries = sortedPairs.slice(0, 8);
-      const firstRoundEntries = sortedPairs.slice(8);
+      const firstRoundEntries = fftDirectDraw
+        ? shuffleItems(sortedPairs.slice(8))
+        : sortedPairs.slice(8);
       const r1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
       const r2Matches = newMainMatches.filter((m) => m.bracketRound === 2);
 
       r1Matches.forEach((match, index) => {
-        const firstEntry = firstRoundEntries[index * 2];
-        const secondEntry = firstRoundEntries[index * 2 + 1];
+        const firstEntry = fftDirectDraw
+          ? firstRoundEntries[index]
+          : firstRoundEntries[index * 2];
+        const secondEntry = fftDirectDraw
+          ? firstRoundEntries[r1Matches.length + index]
+          : firstRoundEntries[index * 2 + 1];
         match.pair1Id = firstEntry?.id;
         match.pair2Id = secondEntry?.id;
         match.pair1Placeholder = firstEntry ? undefined : 'Bye';
@@ -679,14 +695,14 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       });
 
       r2Matches.forEach((match, index) => {
-        const seedRank = buildSeedOrder(8)[index];
+        const seedRank = fftDirectDraw ? fftDirectDraw.ranks[index] : buildSeedOrder(8)[index];
         const directEntry = directEntries[seedRank - 1];
         match.pair1Id = directEntry?.id;
         if (!directEntry) match.pair1Placeholder = 'Bye';
       });
     } else {
       const round1Matches = newMainMatches.filter((m) => m.bracketRound === 1);
-      const seedOrder = buildSeedOrder(round1Matches.length * 2);
+      const seedOrder = fftGeneralDraw?.ranks ?? buildSeedOrder(round1Matches.length * 2);
       round1Matches.forEach((match, index) => {
         const pair1 = sortedPairs[seedOrder[index * 2] - 1];
         const pair2 = sortedPairs[seedOrder[index * 2 + 1] - 1];
@@ -1575,6 +1591,23 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                 className="w-14 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-xs"
                 aria-label="Nombre d’équipes inscrites au tableau"
               />
+            </label>
+            <label
+              className="flex items-center gap-1.5 text-xs font-bold text-slate-700"
+              title="TS1 en bas, TS2 en haut, TS3-4 par moitié, TS5-8 par quart (tirage au sort par chapeaux), exempts aux meilleures TS"
+            >
+              <input
+                type="checkbox"
+                checked={tournament.bracketDrawMode === 'fft'}
+                disabled={!canEditFullTournament}
+                onChange={(e) =>
+                  onUpdateTournament({
+                    ...tournament,
+                    bracketDrawMode: e.target.checked ? 'fft' : 'standard',
+                  })
+                }
+              />
+              <span>Placement FFT</span>
             </label>
             <button
               onClick={() => handleGenerateFullTournament(bracketSize)}

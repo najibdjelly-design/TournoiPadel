@@ -179,12 +179,25 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
   // Generate standardized time slots
   const timeSlots = useMemo(() => {
-    return generateTimeSlots(
-      tournament.firstMatchTime || '09:00',
-      tournament.slotDurationMinutes || 75,
-      10
+    const startTime = tournament.firstMatchTime || '09:00';
+    const slotDuration = tournament.slotDurationMinutes || 75;
+    const toMinutes = (time: string): number | null => {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(time);
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+      return Number(m[1]) * 60 + Number(m[2]);
+    };
+    const scheduledTimes = allMatches
+      .map(match => match.scheduledTime)
+      .filter((time): time is string => Boolean(time) && toMinutes(time as string) !== null);
+    const startMinutes = toMinutes(startTime) ?? 9 * 60;
+    const lastScheduledSlot = scheduledTimes.reduce(
+      (last, time) => Math.max(last, Math.floor((toMinutes(time)! - startMinutes) / slotDuration)),
+      -1
     );
-  }, [tournament.firstMatchTime, tournament.slotDurationMinutes]);
+    const regularSlots = generateTimeSlots(startTime, slotDuration, Math.max(10, lastScheduledSlot + 2));
+    const offset = (time: string) => ((toMinutes(time) ?? 0) - startMinutes + 1440) % 1440;
+    return [...new Set([...regularSlots, ...scheduledTimes])].sort((a, b) => offset(a) - offset(b));
+  }, [tournament.firstMatchTime, tournament.slotDurationMinutes, allMatches]);
 
   const liveMatches = allMatches.filter(m => m.status === 'in_progress');
   const upcomingMatches = allMatches.filter(m => m.status === 'scheduled');
