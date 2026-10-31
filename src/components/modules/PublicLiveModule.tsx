@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect } from 'react';
 import { Tournament, Match, Pair, Pool } from '../../types/tournament';
 import { formatScore, generateTimeSlots, computeCompleteFinalStandings } from '../../utils/padelCalculations';
 import { PairPoolHistoryModal } from '../modals/PairPoolHistoryModal';
@@ -251,6 +251,64 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   }, [activeBracketMatches]);
 
   const sortedRoundNumbers = Array.from(bracketRoundsMap.keys()).sort((a, b) => a - b);
+
+  const bracketContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const matchCardRefs = React.useRef(new Map<string, HTMLDivElement>());
+  const [connectorPaths, setConnectorPaths] = useState<
+    { key: string; d: string; loser: boolean }[]
+  >([]);
+  const [connectorSize, setConnectorSize] = useState({ width: 0, height: 0 });
+
+  useLayoutEffect(() => {
+    const container = bracketContainerRef.current;
+    if (!container || activeTab !== 'bracket' || bracketSubTab === 'standings') {
+      setConnectorPaths(previous => (previous.length ? [] : previous));
+      return;
+    }
+    const compute = () => {
+      const origin = container.getBoundingClientRect();
+      const visibleIds = new Set(activeBracketMatches.map(match => match.id));
+      const paths: { key: string; d: string; loser: boolean }[] = [];
+      const link = (source: Match, targetId: string | undefined, loser: boolean) => {
+        if (!targetId || !visibleIds.has(targetId)) return;
+        const from = matchCardRefs.current.get(source.id);
+        const to = matchCardRefs.current.get(targetId);
+        if (!from || !to) return;
+        const a = from.getBoundingClientRect();
+        const b = to.getBoundingClientRect();
+        const x1 = a.right - origin.left;
+        const y1 = a.top + a.height / 2 - origin.top;
+        const x2 = b.left - origin.left;
+        const y2 = b.top + b.height / 2 - origin.top;
+        if (x2 <= x1) return;
+        const mid = x1 + (x2 - x1) / 2;
+        paths.push({
+          key: `${source.id}-${targetId}-${loser ? 'l' : 'w'}`,
+          d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}`,
+          loser,
+        });
+      };
+      activeBracketMatches.forEach(match => {
+        link(match, match.nextMatchId, false);
+        if (bracketSubTab === 'consolante') link(match, match.loserNextMatchId, true);
+      });
+      setConnectorPaths(previous =>
+        JSON.stringify(previous) === JSON.stringify(paths) ? previous : paths
+      );
+      setConnectorSize(previous => {
+        const next = { width: container.scrollWidth, height: container.scrollHeight };
+        return previous.width === next.width && previous.height === next.height ? previous : next;
+      });
+    };
+    compute();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(compute) : undefined;
+    observer?.observe(container);
+    window.addEventListener('resize', compute);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', compute);
+    };
+  }, [activeBracketMatches, activeTab, bracketSubTab]);
 
   const openRoundClassification = (round: number) => {
     const sourceMatches = mainBracketMatches.filter(match => (match.bracketRound ?? 1) === round);
@@ -1230,7 +1288,24 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                 Aucun match dans ce tableau pour le moment.
               </div>
             ) : (
-              <div className="flex items-stretch gap-6 min-w-[700px]">
+              <div ref={bracketContainerRef} className="relative flex items-stretch gap-10 min-w-[700px]">
+                <svg
+                  className="pointer-events-none absolute inset-0 z-0"
+                  width={connectorSize.width}
+                  height={connectorSize.height}
+                  aria-hidden="true"
+                >
+                  {connectorPaths.map(path => (
+                    <path
+                      key={path.key}
+                      d={path.d}
+                      fill="none"
+                      stroke={path.loser ? '#c7d2fe' : '#94a3b8'}
+                      strokeWidth={1.5}
+                      strokeDasharray={path.loser ? '4 3' : undefined}
+                    />
+                  ))}
+                </svg>
                 {sortedRoundNumbers.map((roundNum) => {
                   const roundMatches = bracketRoundsMap.get(roundNum) || [];
                   const sampleMatch = roundMatches[0];
@@ -1276,7 +1351,11 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                           return (
                             <div
                               key={m.id}
-                              className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2 hover:border-slate-300 transition-colors shadow-xs"
+                              ref={element => {
+                                if (element) matchCardRefs.current.set(m.id, element);
+                                else matchCardRefs.current.delete(m.id);
+                              }}
+                              className="relative z-10 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2 hover:border-slate-300 transition-colors shadow-xs"
                             >
                               <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
                                 <span>Match #{m.matchNumber}</span>

@@ -577,7 +577,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       .sort((a, b) => a.totalWeight - b.totalWeight)
       .slice(0, configuredEntrants);
     const cascadeDraw =
-      tournament.bracketDrawMode === 'fft' && size === 24 && isFftCascadeSupported(configuredEntrants)
+      size === 24 && isFftCascadeSupported(configuredEntrants)
         ? buildFftCascadeTournament(tournament.id, sortedPairs)
         : undefined;
     if (cascadeDraw) {
@@ -603,8 +603,7 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
       });
       return;
     }
-    const useFftDraw =
-      tournament.bracketDrawMode === 'fft' && !(size === 24 && configuredEntrants === 16);
+    const useFftDraw = !(size === 24 && configuredEntrants === 16);
     const fftDirectDraw =
       useFftDraw && size === 24 ? drawFftBracketRanks(8, Math.min(8, configuredEntrants), Math.random, 8) : undefined;
     const fftGeneralDraw =
@@ -1618,23 +1617,6 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
                 className="w-14 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-center text-xs"
                 aria-label="Nombre d’équipes inscrites au tableau"
               />
-            </label>
-            <label
-              className="flex items-center gap-1.5 text-xs font-bold text-slate-700"
-              title="TS1 en bas, TS2 en haut, TS3-4 par moitié, TS5-8 par quart (tirage au sort par chapeaux), exempts aux meilleures TS"
-            >
-              <input
-                type="checkbox"
-                checked={tournament.bracketDrawMode === 'fft'}
-                disabled={!canEditFullTournament}
-                onChange={(e) =>
-                  onUpdateTournament({
-                    ...tournament,
-                    bracketDrawMode: e.target.checked ? 'fft' : 'standard',
-                  })
-                }
-              />
-              <span>Placement FFT</span>
             </label>
             <button
               onClick={() => handleGenerateFullTournament(bracketSize)}

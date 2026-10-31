@@ -174,7 +174,6 @@ export interface Tournament {
   bracketSize?: 4 | 8 | 16 | 24 | 32;
   bracketEntrantCount?: number;
   bracketMode?: 'standard' | 'custom';
-  bracketDrawMode?: 'standard' | 'fft';
   bracketLabelsEditable?: boolean;
   consolanteLabelsEditable?: boolean;
   publicShareToken?: string;
