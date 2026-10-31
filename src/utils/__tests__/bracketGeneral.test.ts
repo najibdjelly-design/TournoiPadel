@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { buildFftBracketTournament } from '../fftBracket';
+import { buildFftCascadeTournament } from '../fftDraw';
 import { computeCompleteFinalStandings } from '../padelCalculations';
 import { makePairs, makeTournament, playAllMatches, seededRandom } from './simulation';
 
@@ -65,3 +66,47 @@ describe('Tableau FFT générique (4/8/16/32 places): tournoi complet simulé', 
     expect(firstRound.length).toBe(4);
   });
 });
+
+describe('Règle FFT: TS en haut dans la moitié haute, en bas dans la moitié basse', () => {
+  const half = (match: import('../../types/tournament').Match, byId: Map<string, import('../../types/tournament').Match>): number => {
+    let current = match;
+    while (!current.roundName.startsWith('Demi-finale')) {
+      const next = current.nextMatchId ? byId.get(current.nextMatchId) : undefined;
+      if (!next) return -1;
+      current = next;
+    }
+    return current.bracketSlotIndex ?? -1;
+  };
+
+  const check = (draw: { bracketMatches: import('../../types/tournament').Match[]; seededCount: number }, label: string) => {
+    const byId = new Map(draw.bracketMatches.map(m => [m.id, m]));
+    const seedIds = new Set(Array.from({ length: draw.seededCount }, (_, i) => `pair_${i + 1}`));
+    for (const match of draw.bracketMatches) {
+      if (match.roundName.startsWith('Grande Finale') || match.roundName.startsWith('Petite')) continue;
+      const seedSlots = (['pair1', 'pair2'] as const).filter(slot => match[`${slot}Id`] && seedIds.has(match[`${slot}Id`]!));
+      if (seedSlots.length !== 1) continue;
+      const upper = half(match, byId) === 0;
+      expect(seedSlots[0], `${label} ${match.roundName}`).toBe(upper ? 'pair1' : 'pair2');
+    }
+  };
+
+  it('tableaux 4/8/16/32 avec ou sans byes', () => {
+    for (const size of [8, 16, 32]) {
+      for (let n = size / 2 + 1; n <= size; n++) {
+        for (let seed = 1; seed <= 15; seed++) {
+          const draw = buildFftBracketTournament('t1', makePairs(n), size, seededRandom(seed));
+          check(draw, `${n}/${size} seed ${seed}`);
+        }
+      }
+    }
+  });
+
+  it('cascade 17 à 20 équipes', () => {
+    for (let n = 17; n <= 20; n++) {
+      for (let seed = 1; seed <= 15; seed++) {
+        check(buildFftCascadeTournament('t1', makePairs(n), seededRandom(seed)), `cascade ${n} seed ${seed}`);
+      }
+    }
+  });
+});
+

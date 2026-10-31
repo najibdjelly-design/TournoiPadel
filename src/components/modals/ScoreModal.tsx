@@ -333,7 +333,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     </span>
                   )}
                 </div>
-                <p className="font-bold text-sm text-slate-900 truncate">{pair1Label}</p>
+                <p className="font-bold text-sm text-slate-900 break-words [overflow-wrap:anywhere] leading-snug">{pair1Label}</p>
                 {pair1?.seedRank && (
                   <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded mt-1 inline-block">
                     TS {pair1.seedRank}
@@ -358,7 +358,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     </span>
                   )}
                 </div>
-                <p className="font-bold text-sm text-slate-900 truncate">{pair2Label}</p>
+                <p className="font-bold text-sm text-slate-900 break-words [overflow-wrap:anywhere] leading-snug">{pair2Label}</p>
                 {pair2?.seedRank && (
                   <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded mt-1 inline-block">
                     TS {pair2.seedRank}
@@ -442,8 +442,8 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                 </div>
 
                 {/* Team 1 Stepper Row */}
-                <div className="flex items-center justify-between gap-3 p-2 bg-white rounded-lg border border-slate-200">
-                  <span className="text-xs font-bold text-slate-800 truncate flex-1">
+                <div className="flex items-center justify-between gap-3 p-2 bg-white rounded-lg border border-slate-200 min-w-0">
+                  <span className="text-xs font-bold text-slate-800 break-words [overflow-wrap:anywhere] leading-snug min-w-0 flex-1">
                     {pair1Label}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -476,8 +476,8 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                 </div>
 
                 {/* Team 2 Stepper Row */}
-                <div className="flex items-center justify-between gap-3 p-2 bg-white rounded-lg border border-slate-200">
-                  <span className="text-xs font-bold text-slate-800 truncate flex-1">
+                <div className="flex items-center justify-between gap-3 p-2 bg-white rounded-lg border border-slate-200 min-w-0">
+                  <span className="text-xs font-bold text-slate-800 break-words [overflow-wrap:anywhere] leading-snug min-w-0 flex-1">
                     {pair2Label}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">

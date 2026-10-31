@@ -109,6 +109,16 @@ export function buildFftBracketTournament(
     classify(losers, start + winners.length, depth + 1);
   };
 
+  const seedIds = new Set(pairsBestFirst.slice(0, seedCount).map(pair => pair.id));
+  const isSeed = (entry: Entry) => Boolean(entry && !isMatch(entry) && seedIds.has(entry.id));
+  // FFT presentation rule: a seed (TS) is shown in the top slot of its match in the upper half
+  // of the draw, and in the bottom slot in the lower half
+  const orient = (a: Entry, b: Entry, upperHalf: boolean): [Entry, Entry] => {
+    if (isSeed(a) === isSeed(b)) return [a, b];
+    const seedFirst = upperHalf;
+    return isSeed(a) === seedFirst ? [a, b] : [b, a];
+  };
+
   let entries: Entry[] = ranks.map(rank => (rank <= n ? pairsBestFirst[rank - 1] : undefined));
   const roundMatches: Match[][] = [];
 
@@ -124,8 +134,9 @@ export function buildFftBracketTournament(
         continue;
       }
       const match = base(`m_fft_main_r${level}_${created.length}_${timestamp}`, 'bracket', `${label} (#${created.length + 1})`, level, created.length, `1-${n}`);
-      attach(match, 'pair1', a);
-      attach(match, 'pair2', b);
+      const [top, bottom] = orient(a, b, i < entries.length / 2);
+      attach(match, 'pair1', top);
+      attach(match, 'pair2', bottom);
       bracket.push(match);
       created.push(match);
       next.push(match);
@@ -144,8 +155,9 @@ export function buildFftBracketTournament(
       continue;
     }
     const match = base(`m_fft_main_sf${semis.length}_${timestamp}`, 'bracket', `Demi-finale (#${semis.length + 1})`, levels - 1, semis.length, '1-4');
-    attach(match, 'pair1', a);
-    attach(match, 'pair2', b);
+    const [top, bottom] = orient(a, b, i < entries.length / 2);
+    attach(match, 'pair1', top);
+    attach(match, 'pair2', bottom);
     bracket.push(match);
     semis.push(match);
     finalists.push(match);

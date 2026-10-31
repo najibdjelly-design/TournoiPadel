@@ -214,10 +214,13 @@ export function buildFftCascadeTournament(
         chain,
         `1-${n}`
       );
-      match.pair1Id = entrantsByTier[tier][chain].id;
+      // FFT presentation rule: seed on top in the upper half, at the bottom in the lower half
+      const seedSlot: 'pair1' | 'pair2' = chain < CHAINS / 2 ? 'pair1' : 'pair2';
+      const feederSlot: 'pair1' | 'pair2' = seedSlot === 'pair1' ? 'pair2' : 'pair1';
+      match[`${seedSlot}Id`] = entrantsByTier[tier][chain].id;
       const feeder = feeders[chain];
-      if (feeder && 'roundName' in feeder) feed(feeder, match, 'pair2', 'winner');
-      else if (feeder) match.pair2Id = feeder.id;
+      if (feeder && 'roundName' in feeder) feed(feeder, match, feederSlot, 'winner');
+      else if (feeder) match[`${feederSlot}Id`] = feeder.id;
       bracket.push(match);
       roundMatches.set(round, [...(roundMatches.get(round) ?? []), match]);
       feeders[chain] = match;
