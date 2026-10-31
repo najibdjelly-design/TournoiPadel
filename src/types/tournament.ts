@@ -73,6 +73,7 @@ export interface Match {
   winnerPairId?: string;
   status: MatchStatus;
   courtId?: string;
+  plannedCourtId?: string; // terrain prévu avant un lancement manuel, restauré si le lancement est annulé
   scheduledTime?: string; // e.g. "09:30"
   scheduledAt?: string;
   startedAt?: string;

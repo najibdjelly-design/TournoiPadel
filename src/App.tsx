@@ -26,6 +26,7 @@ import { ScoreModal } from './components/modals/ScoreModal';
 import { NewTournamentModal } from './components/modals/NewTournamentModal';
 import { TournamentsManagerModal } from './components/modals/TournamentsManagerModal';
 import { computePoolStandings } from './utils/padelCalculations';
+import { clearMatchScore } from './utils/clearScore';
 import { buildParticipantShareUrl } from './utils/tvPages';
 import {
   compactConsolanteLoserSlots,
@@ -427,43 +428,14 @@ export default function App() {
     boltClient.saveTournament(updated);
   };
 
-  // Clear score for a specific match
+  // Clear score for a specific match, taking back the pairs it pushed into the following matches
   const handleClearScore = (matchId: string) => {
     if (!activeTournament) return;
-
-    let updated = { ...activeTournament };
-    const pairsMap = new Map<string, Pair>(updated.pairs.map(p => [p.id, p]));
-
-    let matchFoundInPool = false;
-    updated.pools = updated.pools.map(pool => {
-      const matchIndex = pool.matches.findIndex(m => m.id === matchId);
-      if (matchIndex >= 0) {
-        matchFoundInPool = true;
-        const matchesCopy = [...pool.matches];
-        matchesCopy[matchIndex] = {
-          ...matchesCopy[matchIndex],
-          score: undefined,
-          winnerPairId: undefined,
-          status: 'scheduled',
-        };
-        const updatedPool = { ...pool, matches: matchesCopy };
-        updatedPool.standings = computePoolStandings(updatedPool, pairsMap);
-        return updatedPool;
-      }
-      return pool;
-    });
-
-    if (!matchFoundInPool) {
-      const resetInList = (list: Match[]): Match[] =>
-        list.map(m =>
-          m.id === matchId
-            ? { ...m, score: undefined, winnerPairId: undefined, status: 'scheduled' as const }
-            : m
-        );
-      updated.bracketMatches = resetInList(updated.bracketMatches);
-      updated.consolanteMatches = resetInList(updated.consolanteMatches);
+    const { tournament: updated, error } = clearMatchScore(activeTournament, matchId);
+    if (error) {
+      window.alert(error);
+      return;
     }
-
     boltClient.saveTournament(updated);
     setScoreModalMatch(null);
   };

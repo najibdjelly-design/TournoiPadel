@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Match, Pair, Tournament } from '../../types/tournament';
-import { Clock, Play, Radio, ClipboardEdit } from 'lucide-react';
+import { Clock, Play, Radio, ClipboardEdit, Undo2, CheckCircle2 } from 'lucide-react';
+import { clearMatchScore } from '../../utils/clearScore';
+import { formatScore } from '../../utils/padelCalculations';
 
 interface MatchsModuleProps {
   tournament: Tournament;
@@ -27,7 +29,7 @@ export const MatchsModule: React.FC<MatchsModuleProps> = ({
   onUpdateTournament,
   onOpenScoreModal,
 }) => {
-  const [view, setView] = useState<'todo' | 'live'>('todo');
+  const [view, setView] = useState<'todo' | 'live' | 'done'>('todo');
   const [courtChoice, setCourtChoice] = useState<Record<string, string>>({});
   const [now, setNow] = useState(Date.now());
 
@@ -61,7 +63,22 @@ export const MatchsModule: React.FC<MatchsModuleProps> = ({
         a.matchNumber - b.matchNumber
     );
 
+  // Played matches (byes excluded), latest first, so a wrong score can be cancelled
+  const doneMatches = allMatches
+    .filter(match => match.status === 'completed' && match.score && match.pair1Id && match.pair2Id)
+    .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
+
   const busyCourtIds = new Set(liveMatches.map(match => match.courtId).filter(Boolean));
+
+  const handleCancelScore = (match: Match) => {
+    if (!window.confirm('Annuler le score de ce match et le remettre dans « À venir » ?')) return;
+    const { tournament: updated, error } = clearMatchScore(tournament, match.id);
+    if (error) {
+      window.alert(error);
+      return;
+    }
+    onUpdateTournament(updated);
+  };
 
   const handleLaunch = (match: Match) => {
     const courtId = courtChoice[match.id] ?? match.courtId;
@@ -80,17 +97,36 @@ export const MatchsModule: React.FC<MatchsModuleProps> = ({
     }
     const startedAt = new Date().toISOString();
     const launch = (list: Match[]) =>
-      list.map(item => (item.id === match.id ? { ...item, status: 'in_progress' as const, courtId, startedAt } : item));
-    onUpdateTournament({
-      ...tournament,
-      pools: tournament.pools.map(pool => ({ ...pool, matches: launch(pool.matches) })),
-      bracketMatches: launch(tournament.bracketMatches),
-      consolanteMatches: launch(tournament.consolanteMatches),
-    });
+      list.map(item =>
+        item.id === match.id
+          ? { ...item, status: 'in_progress' as const, courtId, startedAt, plannedCourtId: item.plannedCourtId ?? item.courtId }
+          : item
+      );
+    updateMatches(launch);
     setCourtChoice(previous => {
       const { [match.id]: _removed, ...rest } = previous;
       return rest;
     });
+  };
+
+  const updateMatches = (change: (list: Match[]) => Match[]) =>
+    onUpdateTournament({
+      ...tournament,
+      pools: tournament.pools.map(pool => ({ ...pool, matches: change(pool.matches) })),
+      bracketMatches: change(tournament.bracketMatches),
+      consolanteMatches: change(tournament.consolanteMatches),
+    });
+
+  // Launched by mistake: back to "À venir", with no score and no trace of the launch
+  const handleCancelLaunch = (match: Match) => {
+    if (!window.confirm('Annuler le lancement et remettre ce match dans « À venir » ?')) return;
+    updateMatches(list =>
+      list.map(item => {
+        if (item.id !== match.id) return item;
+        const { startedAt: _startedAt, plannedCourtId, ...rest } = item;
+        return { ...rest, status: 'scheduled' as const, courtId: plannedCourtId };
+      })
+    );
   };
 
   const renderTeams = (match: Match) => (
@@ -130,9 +166,55 @@ export const MatchsModule: React.FC<MatchsModuleProps> = ({
         >
           <Radio className="h-3.5 w-3.5" /> En cours ({liveMatches.length})
         </button>
+        <button
+          type="button"
+          onClick={() => setView('done')}
+          className={`flex items-center gap-1.5 rounded-md px-3.5 py-2 ${
+            view === 'done' ? 'bg-white text-emerald-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" /> Terminés ({doneMatches.length})
+        </button>
       </div>
 
-      {view === 'todo' ? (
+      {view === 'done' ? (
+        doneMatches.length === 0 ? (
+          <p className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+            Aucun match terminé.
+          </p>
+        ) : (
+          <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+            {doneMatches.map(match => (
+              <div key={match.id} className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-[11px] text-slate-500">
+                    {match.roundName} · Match #{match.matchNumber}
+                    {match.courtId ? ` · ${courtsMap.get(match.courtId)?.name ?? ''}` : ''}
+                  </p>
+                  {renderTeams(match)}
+                  <p className="font-mono text-xs font-bold text-emerald-700">{formatScore(match.score)}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpenScoreModal(match)}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                  >
+                    <ClipboardEdit className="h-3.5 w-3.5" /> Corriger le score
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCancelScore(match)}
+                    className="flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" /> Annuler le score
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : view === 'todo' ? (
         todoMatches.length === 0 ? (
           <p className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
             Aucun match programmé en attente de lancement.
@@ -206,13 +288,23 @@ export const MatchsModule: React.FC<MatchsModuleProps> = ({
                   </span>
                 </div>
                 {renderTeams(match)}
-                <button
-                  type="button"
-                  onClick={() => onOpenScoreModal(match)}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-700"
-                >
-                  <ClipboardEdit className="h-3.5 w-3.5" /> Saisir le score
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpenScoreModal(match)}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-700"
+                  >
+                    <ClipboardEdit className="h-3.5 w-3.5" /> Saisir le score
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCancelLaunch(match)}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                    title="Lancé par erreur : remettre dans À venir"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" /> Annuler le lancement
+                  </button>
+                </div>
               </div>
             );
           })}
