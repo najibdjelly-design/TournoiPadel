@@ -109,17 +109,17 @@ const UpcomingMatchesBanner: React.FC<{
 
   if (!matches.length) return null;
   return (
-    <section className="fixed bottom-3 left-[124px] right-[124px] z-30 rounded-2xl border border-amber-300 bg-amber-50/95 p-2 shadow-xl backdrop-blur-sm sm:p-3">
+    <section className="fixed bottom-3 left-4 right-4 z-30 rounded-2xl border border-amber-300 bg-amber-50/95 p-2 shadow-xl backdrop-blur-sm sm:p-3">
       <h2 className="mb-1 flex items-center gap-2 text-xs font-extrabold uppercase tracking-wide text-amber-950 sm:text-sm">
         <Clock className="h-5 w-5" />
         Prochains matchs
       </h2>
-      <div className="flex gap-2 overflow-x-auto">
+      <div className="flex gap-2">
         {matches.map(({ match, timestamp }) => {
           const pair1 = match.pair1Id ? pairsMap.get(match.pair1Id) : undefined;
           const pair2 = match.pair2Id ? pairsMap.get(match.pair2Id) : undefined;
           return (
-            <div key={match.id} className="min-w-[220px] flex-1 rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 sm:min-w-[280px]">
+            <div key={match.id} className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-white px-2.5 py-1.5">
               <div className="flex items-center justify-between gap-2 text-xs font-bold text-amber-900">
                 <span>{match.roundName}</span>
                 <span className="shrink-0">{timestamp && timestamp > now ? formatCountdown(timestamp, now) : match.scheduledTime || 'Horaire à confirmer'}</span>
@@ -448,7 +448,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
     : null;
 
   return (
-    <div className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode pb-32' : ''}`}>
+    <div className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode pb-56' : ''}`}>
       {/* Public Header Banner */}
       <div className="p-4 sm:p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs">
         <div className="min-w-0">
@@ -518,7 +518,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
               aria-label="Ouvrir la vue joueurs sur un autre appareil avec le QR code"
             >
               <QRCodeSVG value={qrUrl} size={88} level="M" />
-              <span className="text-[10px] font-extrabold text-slate-800">Vue joueurs</span>
+              <span className="text-[10px] font-extrabold text-slate-800">Suivi du tournoi</span>
             </a>
           )}
         </>
@@ -946,7 +946,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                   <div className="font-semibold space-y-0.5">
                                     <p
                                       onClick={() => p1 && setSelectedPairHistory(p1)}
-                                      className={`${isTvMode ? 'break-words' : 'truncate'} ${
+                                      className={`${isTvMode ? 'break-words [overflow-wrap:anywhere]' : 'truncate'} ${
                                         match.winnerPairId === match.pair1Id
                                           ? 'text-slate-900 font-bold'
                                           : 'text-slate-700'
@@ -959,7 +959,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
                                     </p>
                                     <p
                                       onClick={() => p2 && setSelectedPairHistory(p2)}
-                                      className={`${isTvMode ? 'break-words' : 'truncate'} ${
+                                      className={`${isTvMode ? 'break-words [overflow-wrap:anywhere]' : 'truncate'} ${
                                         match.winnerPairId === match.pair2Id
                                           ? 'text-slate-900 font-bold'
                                           : 'text-slate-500'

@@ -41,6 +41,13 @@
   line-height: 1.35 !important;
 }
 
+.tv-mode .truncate {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .tv-mode .tv-schedule-table th,
 .tv-mode .tv-schedule-table td {
   padding-left: 0.5rem;
