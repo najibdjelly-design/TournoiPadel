@@ -556,8 +556,9 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
   return (
     <div ref={rootRef} className={`space-y-4 sm:space-y-6 pb-28 md:pb-24 ${isTvMode ? 'tv-mode tv-fullbleed !space-y-3 !pb-44' : ''}`}>
       {/* Public Header Banner */}
-      <div className={`bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs ${isTvMode ? 'px-4 py-2 ml-28 mr-44' : 'p-4 sm:p-6'}`}>
-        <div className="min-w-0">
+      <div className={`bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shadow-xs       ${isTvMode ? 'px-4 py-2 mr-44' : 'p-4 sm:p-6'}`}>
+              <div className="flex min-w-0 items-center gap-4">
+              <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 mb-1">
             <span className="font-mono text-emerald-700 font-bold">LIVE SCORE & TOURNOI</span>
             <span>·</span>
@@ -580,6 +581,17 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
               )}
             </p>
           )}
+        </div>
+        {isTvMode && qrUrl && (
+          <a
+            href={qrUrl}
+            className="flex shrink-0 flex-col items-center gap-1 rounded-xl bg-white p-1.5 ring-1 ring-slate-300"
+            aria-label="Ouvrir la vue joueurs sur un autre appareil avec le QR code"
+          >
+            <QRCodeSVG value={qrUrl} size={88} level="M" />
+            <span className="text-[10px] font-extrabold text-slate-800">Suivi du tournoi</span>
+          </a>
+        )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -636,16 +648,6 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
             tournament={tournament}
             pairsMap={pairsMap}
           />
-          {qrUrl && (
-            <a
-              href={qrUrl}
-              className="fixed left-4 top-4 z-40 flex flex-col items-center gap-1 rounded-xl bg-white/95 p-2 shadow-xl ring-1 ring-slate-300"
-              aria-label="Ouvrir la vue joueurs sur un autre appareil avec le QR code"
-            >
-              <QRCodeSVG value={qrUrl} size={88} level="M" />
-              <span className="text-[10px] font-extrabold text-slate-800">Suivi du tournoi</span>
-            </a>
-          )}
         </>
       )}
 
