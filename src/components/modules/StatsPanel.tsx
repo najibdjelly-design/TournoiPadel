@@ -29,7 +29,9 @@ const gamesOf = (match: Match) => {
 
 const scoreText = (match: Match) =>
   match.score?.sets?.length
-    ? match.score.sets.map(set => `${set.pair1}-${set.pair2}`).join(' ')
+    ? match.score.sets
+        .map(set => `${set.pair1}-${set.pair2}${set.tieBreak ? `(${set.tieBreak})` : ''}`)
+        .join(' ')
     : isForfeit(match)
       ? 'Forfait'
       : '—';
@@ -141,13 +143,37 @@ export const StatsPanel: React.FC<{ tournament: Tournament }> = ({ tournament })
         return Math.abs(g1 - g2);
       };
       const widest = scored.reduce((a, b) => (gap(b) > gap(a) ? b : a));
+      // Closeness: fewest games apart (a super tie-break counts as one game),
+      // then more sets played, then the smallest tie-break point margins
+      const tightness = (match: Match): [number, number, number] => {
+        let g1 = 0;
+        let g2 = 0;
+        let tbMargin = 0;
+        for (const set of match.score?.sets ?? []) {
+          if (set.isSuperTieBreak || set.isMatchTieBreak) {
+            if (set.pair1 > set.pair2) g1 += 1;
+            else if (set.pair2 > set.pair1) g2 += 1;
+            tbMargin += Math.abs(set.pair1 - set.pair2);
+          } else {
+            g1 += set.pair1;
+            g2 += set.pair2;
+            const [a, b] = (set.tieBreak ?? '').split('-').map(Number);
+            if (Number.isFinite(a) && Number.isFinite(b)) tbMargin += Math.abs(a - b);
+          }
+        }
+        return [Math.abs(g1 - g2), -(match.score?.sets.length ?? 0), tbMargin];
+      };
       const tightest = scored.reduce((a, b) => {
-        const closeness = (match: Match) => gap(match) * 10 - (match.score?.sets.length ?? 0);
-        return closeness(b) < closeness(a) ? b : a;
+        const ta = tightness(a);
+        const tb = tightness(b);
+        for (let i = 0; i < 3; i++) {
+          if (tb[i] !== ta[i]) return tb[i] < ta[i] ? b : a;
+        }
+        return a;
       });
       records.push({ label: 'Plus gros écart', match: widest, value: `${gap(widest)} jeux d'écart` });
       if (tightest.id !== widest.id) {
-        records.push({ label: 'Match le plus serré', match: tightest, value: `${gap(tightest)} jeu(x) d'écart` });
+        records.push({ label: 'Match le plus serré', match: tightest, value: `${tightness(tightest)[0]} jeu(x) d'écart` });
       }
     }
     const bestStreak = [...pairStats.entries()].sort((a, b) => b[1].best - a[1].best)[0];

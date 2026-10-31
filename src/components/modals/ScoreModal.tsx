@@ -285,7 +285,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 touch-manipulation flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50">
@@ -450,7 +450,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     <button
                       type="button"
                       onClick={() => decrementScore(idx, 'pair1')}
-                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-900 font-extrabold text-xl flex items-center justify-center border border-slate-300 transition-transform select-none"
+                      className="w-11 h-11 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-900 font-extrabold text-xl flex items-center justify-center border border-slate-300 transition-transform select-none"
                       title="Diminuer (-)"
                     >
                       -
@@ -467,7 +467,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     <button
                       type="button"
                       onClick={() => incrementScore(idx, 'pair1')}
-                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xl flex items-center justify-center shadow-xs transition-transform select-none"
+                      className="w-11 h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xl flex items-center justify-center shadow-xs transition-transform select-none"
                       title="Augmenter (+)"
                     >
                       +
@@ -484,7 +484,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     <button
                       type="button"
                       onClick={() => decrementScore(idx, 'pair2')}
-                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-900 font-extrabold text-xl flex items-center justify-center border border-slate-300 transition-transform select-none"
+                      className="w-11 h-11 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-900 font-extrabold text-xl flex items-center justify-center border border-slate-300 transition-transform select-none"
                       title="Diminuer (-)"
                     >
                       -
@@ -501,7 +501,7 @@ export const ScoreModal: React.FC<ScoreModalProps> = ({
                     <button
                       type="button"
                       onClick={() => incrementScore(idx, 'pair2')}
-                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xl flex items-center justify-center shadow-xs transition-transform select-none"
+                      className="w-11 h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xl flex items-center justify-center shadow-xs transition-transform select-none"
                       title="Augmenter (+)"
                     >
                       +
