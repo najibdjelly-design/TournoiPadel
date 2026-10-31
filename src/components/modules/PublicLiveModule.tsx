@@ -6,6 +6,7 @@ import { getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
 import { getCompetitionPoints } from '../../utils/competitionPoints';
 import { DEFAULT_TV_PAGES, type TvPageId } from '../../utils/tvPages';
 import { QRCodeSVG } from 'qrcode.react';
+import { StatsPanel } from './StatsPanel';
 import {
   Flame,
   Search,
@@ -26,6 +27,7 @@ import {
   X,
   Timer,
   ChevronRight,
+  BarChart3,
 } from 'lucide-react';
 
 interface PublicLiveModuleProps {
@@ -66,7 +68,7 @@ const DurationBadge: React.FC<{ match: Match }> = ({ match }) => {
   ) : null;
 };
 
-type LiveTab = 'participants' | 'my-matches' | 'courts' | 'schedule' | 'pools' | 'bracket';
+type LiveTab = 'participants' | 'my-matches' | 'courts' | 'schedule' | 'pools' | 'bracket' | 'stats';
 type BracketSubTab = 'main' | 'consolante' | 'standings';
 
 const TV_VIEW_SECONDS = 6;
@@ -710,6 +712,18 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           <GitBranch className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
           <span>Tableau Final & Consolante</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('stats')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-md transition-colors whitespace-nowrap min-h-[38px] ${
+            activeTab === 'stats'
+              ? 'bg-white text-emerald-800 font-bold border border-slate-200 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <BarChart3 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+          <span>Stats</span>
+        </button>
       </div>
 
       <nav
@@ -723,6 +737,7 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           { id: 'schedule' as const, label: 'Programme', icon: Calendar },
           { id: 'pools' as const, label: 'Poules', icon: Grid3X3 },
           { id: 'bracket' as const, label: 'Tableau', icon: GitBranch },
+          { id: 'stats' as const, label: 'Stats', icon: BarChart3 },
         ].map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -783,6 +798,8 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
 
       {/* Tab 0: Participants (injected by the player portal) */}
       {activeTab === 'participants' && participantsPanel}
+
+      {activeTab === 'stats' && <StatsPanel tournament={tournament} />}
 
       {/* Tab 1: Live Courts */}
       {activeTab === 'courts' && (
