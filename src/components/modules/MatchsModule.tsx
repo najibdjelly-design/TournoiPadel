@@ -52,14 +52,9 @@ export const MatchsModule: React.FC<MatchsModuleProps> = ({
     .filter(match => match.status === 'in_progress')
     .sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''));
 
-  // Only matches whose two teams are known can be started
+  // All matches without a score yet; launching requires both teams to be known
   const todoMatches = allMatches
-    .filter(
-      match =>
-        (match.status === 'scheduled' || match.status === 'warmup') &&
-        Boolean(match.pair1Id) &&
-        Boolean(match.pair2Id)
-    )
+    .filter(match => match.status === 'scheduled' || match.status === 'warmup')
     .sort(
       (a, b) =>
         (a.scheduledTime ?? '99:99').localeCompare(b.scheduledTime ?? '99:99') ||
@@ -181,8 +176,10 @@ export const MatchsModule: React.FC<MatchsModuleProps> = ({
                     </select>
                     <button
                       type="button"
+                      disabled={!match.pair1Id || !match.pair2Id}
+                      title={!match.pair1Id || !match.pair2Id ? 'Équipes pas encore connues' : undefined}
                       onClick={() => handleLaunch(match)}
-                      className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-700"
+                      className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       <Play className="h-3.5 w-3.5" /> Lancer le match
                     </button>
