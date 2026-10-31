@@ -38,7 +38,7 @@ import {
   resolveMatchOutcomePlaceholder,
 } from '../../utils/padelSchedule';
 import { PADEL_MATCH_FORMATS, getPadelMatchFormatDescription } from '../../utils/padelMatchFormats';
-import { drawFftBracketRanks, shuffleItems } from '../../utils/fftDraw';
+import { buildFftCascadeTournament, drawFftBracketRanks, isFftCascadeSupported, shuffleItems } from '../../utils/fftDraw';
 
 const CUSTOM_CLASSIFICATION_COHORT_SIZES = [2, 4, 8, 16, 24, 32] as const;
 
@@ -543,9 +543,9 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
   );
   const canEditFullTournament =
     canEditTableStructure('main') && canEditTableStructure('consolante');
-  const canClearActiveTable = activeTab === 'main'
-    ? canEditFullTournament
-    : canEditTableStructure('consolante');
+  const canClearActiveTable = canEditTableStructure(
+    activeTab === 'consolante' ? 'consolante' : 'main'
+  );
   const resolvedOutcomeMatches = useMemo(
     () =>
       resolveMatchOutcomeReferences(
@@ -576,6 +576,33 @@ export const TableauModule: React.FC<TableauModuleProps> = ({
     const sortedPairs = [...confirmed]
       .sort((a, b) => a.totalWeight - b.totalWeight)
       .slice(0, configuredEntrants);
+    const cascadeDraw =
+      tournament.bracketDrawMode === 'fft' && size === 24 && isFftCascadeSupported(configuredEntrants)
+        ? buildFftCascadeTournament(tournament.id, sortedPairs)
+        : undefined;
+    if (cascadeDraw) {
+      const cascadeSeeds = new Map(
+        sortedPairs.map((pair, index) => [
+          pair.id,
+          { ...pair, seedRank: index < cascadeDraw.seededCount ? index + 1 : undefined },
+        ])
+      );
+      onUpdateTournament({
+        ...tournament,
+        pairs: tournament.pairs.map((pair) => {
+          const seeded = cascadeSeeds.get(pair.id);
+          if (seeded) return seeded;
+          return pair.status === 'confirmed' && pair.seedRank ? { ...pair, seedRank: undefined } : pair;
+        }),
+        bracketSize: size,
+        bracketEntrantCount: configuredEntrants,
+        bracketLabelsEditable: false,
+        consolanteLabelsEditable: false,
+        bracketMatches: cascadeDraw.bracketMatches,
+        consolanteMatches: cascadeDraw.consolanteMatches,
+      });
+      return;
+    }
     const useFftDraw =
       tournament.bracketDrawMode === 'fft' && !(size === 24 && configuredEntrants === 16);
     const fftDirectDraw =
