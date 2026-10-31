@@ -511,17 +511,16 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
             tournament={tournament}
             pairsMap={pairsMap}
           />
-          {qrUrl && (['left-4', 'right-4'] as const).map(position => (
+          {qrUrl && (
             <a
-              key={position}
               href={qrUrl}
-              className={`fixed ${position} bottom-4 z-40 flex flex-col items-center gap-1 rounded-xl bg-white/95 p-2 shadow-xl ring-1 ring-slate-300`}
+              className="fixed left-4 top-4 z-40 flex flex-col items-center gap-1 rounded-xl bg-white/95 p-2 shadow-xl ring-1 ring-slate-300"
               aria-label="Ouvrir la vue joueurs sur un autre appareil avec le QR code"
             >
               <QRCodeSVG value={qrUrl} size={88} level="M" />
               <span className="text-[10px] font-extrabold text-slate-800">Vue joueurs</span>
             </a>
-          ))}
+          )}
         </>
       )}
 
@@ -878,8 +877,8 @@ export const PublicLiveModule: React.FC<PublicLiveModuleProps> = ({
           {/* VIEW 1: Grid Table by Court */}
           {scheduleViewMode === 'grid' && (
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-xs min-w-[750px]">
+              <div className={isTvMode ? 'overflow-hidden' : 'overflow-x-auto'}>
+                <table className={`w-full border-collapse text-xs ${isTvMode ? 'tv-schedule-table table-fixed' : 'min-w-[750px]'}`}>
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-700">
                       <th className="py-3 px-4 text-left font-mono font-bold text-emerald-800 uppercase tracking-wider w-24">
